@@ -7,14 +7,14 @@
 // VARS
 
 Settings.Cake = Context;
-Settings.Version = Argument("BuildVersion", "3.24.24.1");
+Settings.Version = Argument("BuildVersion", "4.22.4.1");
 Settings.BuildTarget = Argument("BuildTarget", "Default");
 Settings.Assembly = Argument("Assembly", "");
 var configuration = Argument("Configuration", "Release");
 
 var msbuildsettings = new DotNetMSBuildSettings();
 var list = new List<GAssembly>();
-var supportedVersionBands = new List<string>() {"6.0.100", "6.0.200", "6.0.300", "6.0.400", "7.0.400", "8.0.100", "8.0.200"};
+var supportedVersionBands = new List<string>() {"8.0.100", "8.0.200", "8.0.300", "8.0.400"};
 
 // TASKS
 
@@ -23,9 +23,9 @@ Task("Init")
 {
     if (!string.IsNullOrEmpty(EnvironmentVariable("GITHUB_ACTIONS")))
     {
-        Settings.Version = "3.24.24." + EnvironmentVariable("GITHUB_RUN_NUMBER");
+        Settings.Version = "4.22.4." + EnvironmentVariable("GITHUB_RUN_NUMBER");
 
-        if (EnvironmentVariable("GITHUB_REF") != "refs/heads/master")
+        if (EnvironmentVariable("GITHUB_REF") != "refs/heads/gtk4")
             Settings.Version += "-develop";
     }
 
