@@ -43,12 +43,19 @@ class Settings
             },
             new GAssembly("PangoSharp")
             {
+                StrictMetadata = true,
                 Deps = new[] { "GLibSharp", "CairoSharp" },
                 Gir = new[] { "Source/Gir/Pango-1.0.gir", "Source/Gir/PangoCairo-1.0.gir" },
+                // Both gir namespaces land in the Pango C# namespace, so group
+                // pango_cairo_* under Pango's "cairo" class the way gapi2xml.pl
+                // did. That class is renamed CairoHelper by the metadata and is
+                // public API the samples call.
+                ExtraGirArgs = "--group-prefix=pango",
             },
             // GdkSharp binds two namespaces, Gdk and GdkPixbuf, as it always has.
             new GAssembly("GdkSharp")
             {
+                StrictMetadata = true,
                 Deps = new[] { "GLibSharp", "GioSharp", "CairoSharp", "PangoSharp", "GrapheneSharp" },
                 Gir = new[] { "Source/Gir/Gdk-4.0.gir", "Source/Gir/GdkPixbuf-2.0.gir" },
             },
@@ -60,6 +67,7 @@ class Settings
             },
             new GAssembly("GtkSharp")
             {
+                StrictMetadata = true,
                 Deps = new[] { "GLibSharp", "GioSharp", "CairoSharp", "PangoSharp", "GrapheneSharp", "GdkSharp", "GskSharp" },
                 Gir = new[] { "Source/Gir/Gtk-4.0.gir" },
                 ExtraArgs = "--abi-cs-usings=Gtk,GLib"
@@ -72,11 +80,13 @@ class Settings
             },
             new GAssembly("GtkSourceSharp")
             {
+                StrictMetadata = true,
                 Deps = new[] { "GLibSharp", "GioSharp", "CairoSharp", "PangoSharp", "GrapheneSharp", "GdkSharp", "GskSharp", "GtkSharp" },
                 Gir = new[] { "Source/Gir/GtkSource-5.gir" },
             },
             new GAssembly("WebkitGtkSharp")
             {
+                StrictMetadata = true,
                 Deps = new[] { "GLibSharp", "GioSharp", "CairoSharp", "PangoSharp", "GrapheneSharp", "GdkSharp", "GskSharp", "GtkSharp" },
                 Gir = new[] { "Source/Gir/WebKit-6.0.gir" },
                 ExtraArgs = "--abi-cs-usings=WebKit,Gtk,GLib,Gdk,Pango,Cairo"

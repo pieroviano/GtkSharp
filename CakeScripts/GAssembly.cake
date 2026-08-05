@@ -38,6 +38,9 @@ public class GAssembly
     // block the build.
     public bool StrictMetadata { get; set; }
 
+    // Extra flags for GirToGapi, e.g. --group-prefix=.
+    public string ExtraGirArgs { get; set; }
+
     public GAssembly(string name)
     {
         Cake = Settings.Cake;
@@ -110,7 +113,8 @@ public class GAssembly
         Cake.DotNetExecute("BuildOutput/Tools/GirToGapi.dll",
             inputs +
             "--out=" + RawApi + " " +
-            "--assembly-name=" + Name +
+            "--assembly-name=" + Name + " " +
+            (ExtraGirArgs ?? string.Empty) +
             includes
         );
     }
