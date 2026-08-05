@@ -27,6 +27,7 @@ class Settings
             },
             new GAssembly("GioSharp")
             {
+                StrictMetadata = true,
                 Deps = new[] { "GLibSharp" },
                 Gir = new[] { "Source/Gir/Gio-2.0.gir" },
             },
@@ -36,6 +37,7 @@ class Settings
             new GAssembly("CairoSharp"),
             new GAssembly("GrapheneSharp")
             {
+                StrictMetadata = true,
                 Deps = new[] { "GLibSharp" },
                 Gir = new[] { "Source/Gir/Graphene-1.0.gir" },
             },
@@ -52,6 +54,7 @@ class Settings
             },
             new GAssembly("GskSharp")
             {
+                StrictMetadata = true,
                 Deps = new[] { "GLibSharp", "GioSharp", "CairoSharp", "PangoSharp", "GrapheneSharp", "GdkSharp" },
                 Gir = new[] { "Source/Gir/Gsk-4.0.gir" },
             },
@@ -63,6 +66,7 @@ class Settings
             },
             new GAssembly("AdwaitaSharp")
             {
+                StrictMetadata = true,
                 Deps = new[] { "GLibSharp", "GioSharp", "CairoSharp", "PangoSharp", "GrapheneSharp", "GdkSharp", "GskSharp", "GtkSharp" },
                 Gir = new[] { "Source/Gir/Adw-1.gir" },
             },

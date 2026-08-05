@@ -64,6 +64,20 @@ public class GAssembly
         if (Gir.Length == 0)
             return;
 
+        // No .metadata means the assembly is hand-written and Prepare generates
+        // nothing from its api.xml, so there is nothing to regenerate either.
+        // GLibSharp is the case that matters: its api.xml is a small
+        // hand-maintained stub of the few types codegen cannot infer, while
+        // GObject itself is hardcoded in SymbolTable.cs as GLib.Object.
+        // Overwriting it with a full conversion of GLib + GObject introduces a
+        // GObject namespace that nothing implements. Its gir is listed purely so
+        // dependents can --include it.
+        if (!Cake.FileExists(Metadata))
+        {
+            Cake.Information(Name + ": hand-written, api.xml left alone");
+            return;
+        }
+
         foreach (var gir in Gir)
         {
             if (!Cake.FileExists(gir))
