@@ -18,11 +18,14 @@ public class GAssembly
     public string[] Deps { get; set; }
     public string ExtraArgs { get; set; }
 
-    // Vendored GObject-Introspection input, e.g. "Source/Gir/Gtk-4.0.gir".
-    // Only consumed by the RegenerateApi target, never by a normal build:
-    // the api.xml it produces is checked in, so building stays hermetic and
-    // needs no Gtk installed.
-    public string Gir { get; set; }
+    // Vendored GObject-Introspection inputs, e.g. "Source/Gir/Gtk-4.0.gir".
+    // Each one becomes a <namespace> in the assembly's api.xml; GdkSharp binds
+    // Gdk and GdkPixbuf together and so lists two.
+    //
+    // Only consumed by the RegenerateApi target, never by a normal build: the
+    // api.xml it produces is checked in, so building stays hermetic and needs
+    // no Gtk installed.
+    public string[] Gir { get; set; }
 
     // Extra .gir files passed to the converter for type resolution that are not
     // themselves wrapper assemblies -- GObject-2.0.gir is the standard case,
@@ -39,6 +42,7 @@ public class GAssembly
     {
         Cake = Settings.Cake;
         Deps = new string[0];
+        Gir = new string[0];
         GirIncludes = new string[0];
 
         Name = name;
@@ -57,13 +61,16 @@ public class GAssembly
     // files came from gapi2xml.pl by hand.
     public void RegenerateApi()
     {
-        if (string.IsNullOrEmpty(Gir))
+        if (Gir.Length == 0)
             return;
 
-        if (!Cake.FileExists(Gir))
+        foreach (var gir in Gir)
         {
-            Cake.Error("Missing gir input for " + Name + ": " + Gir);
-            throw new Exception("Missing gir input: " + Gir);
+            if (!Cake.FileExists(gir))
+            {
+                Cake.Error("Missing gir input for " + Name + ": " + gir);
+                throw new Exception("Missing gir input: " + gir);
+            }
         }
 
         // Dependencies are passed for type resolution only; they are not emitted.
@@ -72,15 +79,22 @@ public class GAssembly
         {
             var depAssembly = Settings.AssemblyList.FirstOrDefault(a => a.Name == dep);
 
-            if (depAssembly != null && !string.IsNullOrEmpty(depAssembly.Gir))
-                includes += " --include=" + depAssembly.Gir;
+            if (depAssembly == null)
+                continue;
+
+            foreach (var gir in depAssembly.Gir)
+                includes += " --include=" + gir;
         }
 
         foreach (var extra in GirIncludes)
             includes += " --include=" + extra;
 
+        var inputs = string.Empty;
+        foreach (var gir in Gir)
+            inputs += "--gir=" + gir + " ";
+
         Cake.DotNetExecute("BuildOutput/Tools/GirToGapi.dll",
-            "--gir=" + Gir + " " +
+            inputs +
             "--out=" + RawApi + " " +
             "--assembly-name=" + Name +
             includes
