@@ -27,15 +27,15 @@ jobs:
         run: dotnet cake build.cake
         env:
           GITHUB_ACTIONS: true
-      # This repository has no test project, so a headless run of the samples is
-      # the only end-to-end verification available. It constructs every section
-      # and fails if any of them does not produce a widget.
+      # The tests call into Gtk rather than merely compiling against it, which
+      # is the only way to catch a removed native export: FuncLoader returns a
+      # null delegate for a missing symbol, so it is not a link error.
       - name: Install Gtk 4 runtime
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-4-1 libadwaita-1-0 libgtksourceview-5-0 xvfb
-      - name: Smoke-run Samples headless
-        run: xvfb-run -a dotnet BuildOutput/Samples/Samples.dll --smoke-exit
+      - name: Run tests headless
+        run: xvfb-run -a dotnet cake build.cake --BuildTarget=Test
       - uses: actions/upload-artifact@main
         with:
           name: NuGet Packages

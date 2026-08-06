@@ -37,12 +37,24 @@ All build output lands in `BuildOutput/` (`BuildOutput/Tools`, `BuildOutput/$(Co
 
 ## Tests
 
-There is no test project or test runner in this repository. Verification rests on `Source/Samples`, a gallery app exercising the widget bindings (`Source/Samples/Sections/*`):
+`Source/Tests/GtkSharp.Tests` is an xunit project and is the verification this repository relies on.
 
-- **Interactive:** `--BuildTarget=RunSamples`.
-- **Headless:** `dotnet BuildOutput/Samples/Samples.dll --smoke-exit` constructs every type carrying `[Section]`, asserts that each produces a widget and that the number built equals the number declared, pumps the pending main-loop work, and exits non-zero naming any that failed. CI (`.github/workflows/main.yml`, ubuntu-24.04, .NET 8) runs this under `xvfb-run` after the build.
+```sh
+dotnet cake build.cake --BuildTarget=Test     # or: dotnet test Source/Tests/GtkSharp.Tests
+```
 
-Compiling proves very little here. Because a missing native export becomes a null delegate rather than a link error, whole families of removed Gtk 3 functions built cleanly and only failed when called — `gtk_main`, `gtk_widget_destroy` and `gtk_cell_renderer_get_size` among them. **Run the samples before believing a binding change works.**
+It needs a **Gtk 4 runtime present**, because it calls into Gtk rather than merely compiling against it. CI (`.github/workflows/main.yml`, ubuntu-24.04, .NET 8) runs it under `xvfb-run`.
+
+Two kinds of test:
+
+- **`SampleSectionTests`** constructs every type carrying `[Section]` in `Source/Samples`, one test case each, asserting a live widget comes back. The samples are the widest exercise of the bindings here, so this is the broadest regression net available.
+- **`BindingTests`** are behavioural round-trips, each pinning something the Gtk 4 migration fixed.
+
+`GtkFixture` owns the single thread Gtk is initialised on and marshals every test body onto it, because Gtk may only be used from the thread that called `gtk_init` and xunit promises no thread affinity. Parallelisation is disabled assembly-wide.
+
+**Why calling matters more than compiling here:** a native export that no longer exists is not a link error. `FuncLoader.LoadFunction` returns `default(T)`, so the binding compiles and throws `NullReferenceException` only when reached — with nothing naming the missing symbol. Whole families of removed Gtk 3 functions survived the port that way: `gtk_main`, `gtk_widget_destroy`, `gtk_button_new_from_stock`, `gtk_cell_renderer_get_size`. **Add a test that calls the thing you changed.**
+
+Interactive runs still exist: `--BuildTarget=RunSamples`.
 
 ## Code generation pipeline
 
