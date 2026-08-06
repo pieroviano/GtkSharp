@@ -75,19 +75,28 @@ class Settings
             new GAssembly("AdwaitaSharp")
             {
                 StrictMetadata = true,
-                Deps = new[] { "GLibSharp", "GioSharp", "CairoSharp", "PangoSharp", "GrapheneSharp", "GdkSharp", "GskSharp", "GtkSharp" },
+                Deps = new[] { "GLibSharp", "GioSharp", "CairoSharp", "PangoSharp", "GrapheneSharp", "GdkSharp", "GskSharp", "GtkSharp", "JavaScriptCoreSharp" },
                 Gir = new[] { "Source/Gir/Adw-1.gir" },
             },
             new GAssembly("GtkSourceSharp")
             {
                 StrictMetadata = true,
-                Deps = new[] { "GLibSharp", "GioSharp", "CairoSharp", "PangoSharp", "GrapheneSharp", "GdkSharp", "GskSharp", "GtkSharp" },
+                Deps = new[] { "GLibSharp", "GioSharp", "CairoSharp", "PangoSharp", "GrapheneSharp", "GdkSharp", "GskSharp", "GtkSharp", "JavaScriptCoreSharp" },
                 Gir = new[] { "Source/Gir/GtkSource-5.gir" },
+            },
+            // JavaScriptCore ships as its own shared library, and WebKit's
+            // javascript results are JSCValues, so this has to be bound before
+            // WebkitGtkSharp can express them as anything but a bare pointer.
+            new GAssembly("JavaScriptCoreSharp")
+            {
+                StrictMetadata = true,
+                Deps = new[] { "GLibSharp", "GioSharp" },
+                Gir = new[] { "Source/Gir/JavaScriptCore-6.0.gir" },
             },
             new GAssembly("WebkitGtkSharp")
             {
                 StrictMetadata = true,
-                Deps = new[] { "GLibSharp", "GioSharp", "CairoSharp", "PangoSharp", "GrapheneSharp", "GdkSharp", "GskSharp", "GtkSharp" },
+                Deps = new[] { "GLibSharp", "GioSharp", "CairoSharp", "PangoSharp", "GrapheneSharp", "GdkSharp", "GskSharp", "GtkSharp", "JavaScriptCoreSharp" },
                 Gir = new[] { "Source/Gir/WebKit-6.0.gir" },
                 ExtraArgs = "--abi-cs-usings=WebKit,Gtk,GLib,Gdk,Pango,Cairo"
             }
