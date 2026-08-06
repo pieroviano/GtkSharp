@@ -9,7 +9,10 @@ jobs:
       packages: write
     strategy:
       matrix:
-        os: [ubuntu-22.04]
+        # Gtk 4.22 needs a newer runner than the Gtk 3 build used: ubuntu-22.04
+        # has no libgtk-4 recent enough for the smoke run below. The build alone
+        # does not need Gtk installed, because the api.xml files are vendored.
+        os: [ubuntu-24.04]
     steps:
       - uses: actions/checkout@v2
         with:
@@ -24,6 +27,15 @@ jobs:
         run: dotnet cake build.cake
         env:
           GITHUB_ACTIONS: true
+      # This repository has no test project, so a headless run of the samples is
+      # the only end-to-end verification available. It constructs every section
+      # and fails if any of them does not produce a widget.
+      - name: Install Gtk 4 runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-1 libadwaita-1-0 libgtksourceview-5-0 xvfb
+      - name: Smoke-run Samples headless
+        run: xvfb-run -a dotnet BuildOutput/Samples/Samples.dll --smoke-exit
       - uses: actions/upload-artifact@main
         with:
           name: NuGet Packages
