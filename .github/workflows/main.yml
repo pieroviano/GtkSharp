@@ -4,44 +4,62 @@ on: [push, pull_request]
 
 jobs:
   build:
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-24.04
     permissions:
       packages: write
-    strategy:
-      matrix:
-        # Gtk 4.22 needs a newer runner than the Gtk 3 build used: ubuntu-22.04
-        # has no libgtk-4 recent enough for the smoke run below. The build alone
-        # does not need Gtk installed, because the api.xml files are vendored.
-        os: [ubuntu-24.04]
+
+    # The api.xml files are generated from the .gir files vendored in
+    # Source/Gir, which come from Debian forky -- Gtk 4.22.4, libadwaita 1.9,
+    # webkitgtk 2.52.5 (see Source/Gir/README.md). No Ubuntu LTS runner ships
+    # anything that new: 24.04 has Gtk 4.14, eight minor versions behind.
+    #
+    # That gap matters more here than it looks. A symbol the binding declares
+    # but the installed library lacks is not a link error -- FuncLoader returns
+    # a null delegate and the call throws when it is reached. Testing against
+    # an older Gtk than the binding describes would therefore leave exactly the
+    # class of bug this suite exists to find undetectable, while still reporting
+    # green.
+    #
+    # Running the job in a debian:forky container fixes the versions to the ones
+    # the bindings were generated from, so a failure here is a real defect.
+    container:
+      image: debian:forky
+
     steps:
-      - uses: actions/checkout@v2
+      - name: Install build and runtime dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl git \
+            dotnet-sdk-8.0 \
+            libgtk-4-1 libadwaita-1-0 libgtksourceview-5-0 \
+            libwebkitgtk-6.0-4 libjavascriptcoregtk-6.0-1 \
+            xvfb
+
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Setup .NET Core SDK ${{ matrix.dotnet-version }}
-        uses: actions/setup-dotnet@v1
-        with:
-          dotnet-version: '8.0.x'
+
       - name: Restore dotnet tools
         run: dotnet tool restore
+
       - name: Run build.cake
         run: dotnet cake build.cake
         env:
           GITHUB_ACTIONS: true
+
       # The tests call into Gtk rather than merely compiling against it, which
-      # is the only way to catch a removed native export: FuncLoader returns a
-      # null delegate for a missing symbol, so it is not a link error.
-      - name: Install Gtk 4 runtime
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-4-1 libadwaita-1-0 libgtksourceview-5-0 xvfb
+      # is the only way to catch a removed or missing native export.
       - name: Run tests headless
         run: xvfb-run -a dotnet cake build.cake --BuildTarget=Test
-      - uses: actions/upload-artifact@main
+
+      - uses: actions/upload-artifact@v4
         with:
           name: NuGet Packages
           path: |
             BuildOutput/NugetPackages/**/*.nupkg
           if-no-files-found: error
+
       - name: Push NuGet to GitHub packages
         run: dotnet nuget push BuildOutput/NugetPackages/**/*.nupkg --source https://nuget.pkg.github.com/$GITHUB_REPOSITORY_OWNER/index.json --api-key ${GITHUB_TOKEN}
         env:
