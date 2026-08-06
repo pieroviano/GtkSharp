@@ -34,7 +34,7 @@ jobs:
             dotnet-sdk-8.0 \
             libgtk-4-1 libadwaita-1-0 libgtksourceview-5-0 \
             libwebkitgtk-6.0-4 libjavascriptcoregtk-6.0-1 \
-            xvfb
+            xvfb xauth
 
       - uses: actions/checkout@v4
         with:
