@@ -54,40 +54,50 @@ Both aborts land under a **"Passed!" line with a truncated total** — the failu
 mode this document keeps returning to. 135 of 766 was the shape of the WebKit
 one.
 
-### The WebKit sandbox, and why the suite now predicts it
+### The WebKit sandbox, and why the switch is a switch
 
-The flag above is a convenience for a local run, not a requirement. Leave it off
-and the suite still finishes: `WebKitSandbox` runs the operation `bwrap` begins
-with — `bwrap --unshare-user --ro-bind / / /bin/true`, the same binary WebKit
-will spawn — and skips the WebKit-backed sections when it is refused, in
-`SampleSectionTests`, `ChildWindowTests` and `SectionBrowsingTests` alike.
+The alternative to that flag is `GTKSHARP_TESTS_SKIP_WEBKIT=1`, which is what CI
+sets. `TestEnvironment` reads it and skips the WebKit-backed cases —
+`OptionalLibraryTests`, and the WebView section in `SampleSectionTests`,
+`ChildWindowTests` and `SectionBrowsingTests`. **Set one or the other when
+running the suite in a container**; leave both unset on a desktop, where the
+sandbox starts and WebKit is covered.
 
-It has to be a *prediction*. The abort is a `g_error` inside WebKit, not an
-exception: no `try` reaches it, and by the time it prints, the host is gone.
+It has to be decided in advance either way. The abort is a `g_error` inside
+WebKit, not an exception: no `try` reaches it, and by the time it prints, the
+host is gone.
 
-Refusal is the norm rather than the exception. Docker's default seccomp profile
-blocks `clone(CLONE_NEWUSER)`, so a plain `docker run debian:forky` — and the
-`container:` of the CI job, which is the same thing — has no user namespace to
-give:
+**Detecting it instead was tried and does not work.** The obvious probe — run
+the operation bwrap begins with, `bwrap --unshare-user --ro-bind / / /bin/true`,
+against the binary WebKit will spawn — reports success in a container where
+WebKit still aborts. Shimming `/usr/bin/bwrap` to log its argv shows why: WebKit
+makes four calls, and the first is a capability check shaped like the probe,
+which passes. The one that fails is the fourth,
 
-```console
-$ docker run --rm debian:forky unshare -U true
-unshare: unshare failed: Operation not permitted
-$ docker run --rm --security-opt seccomp=unconfined debian:forky unshare -U true
-$ echo $?
-0
+```text
+bwrap --args 217 -- /usr/bin/xdg-dbus-proxy --args=213
 ```
 
-That second line is the other way to get the sections back, and the better one
-of the two: it lets WebKit keep its sandbox instead of turning it off. Passing
-`--security-opt seccomp=unconfined` to the container makes the probe succeed and
-the skips stop firing, with nothing in the test project to change. CI does not
-do it by default because it relaxes the syscall filter for a job holding a
-`packages:write` token, which is a wider grant than the coverage is worth — see
-the comment on the "Run tests headless" step.
+whose failure is `Creating new namespace failed: Operation not permitted` —
+bubblewrap's message for a namespace other than the user one, not the
+`No permissions to create a new namespace…` a blocked `CLONE_NEWUSER` produces.
+So the probe answers a question WebKit is not asking, and a probe that can say
+"usable" and then abort is worse than no probe: a wrong "skip" costs coverage, a
+wrong "run" costs the whole suite.
 
-`OptionalLibraryTests` is unaffected either way. Constructing a `WebKit.WebView`
-never reaches the sandbox; only loading a page does.
+Loosening the container does not earn the coverage back cheaply either. Measured
+on one image, running only the section theory:
+
+| container | result |
+|---|---|
+| *(default)* | aborts, 18 of 32 |
+| `--security-opt seccomp=unconfined` | aborts, 18 of 32 |
+| `--privileged` | 32 of 32 |
+
+`seccomp=unconfined` is enough for `unshare -U true` and for bwrap on its own —
+Docker's default profile is what blocks `clone(CLONE_NEWUSER)` — and still not
+enough for WebKit. Only `--privileged` is, and that is a far wider grant than a
+job holding a `packages:write` token should have.
 
 ---
 

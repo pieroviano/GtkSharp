@@ -58,8 +58,8 @@ namespace GtkSharp.Tests
         public void Selecting_a_section_mounts_it_and_shows_its_source(string category, string label)
         {
             // Selecting the row is what instantiates the section, so a
-            // WebKit-backed one loads a page here too.
-            Skip.IfNot(WebKitSandbox.CanMount(label), WebKitSandbox.SkipReason);
+            // WebKit-backed one builds its WebView here too.
+            Skip.IfNot(TestEnvironment.CanMountSectionLabelled(label), TestEnvironment.WebKitSkipReason);
 
             Run(() =>
             {
@@ -91,9 +91,11 @@ namespace GtkSharp.Tests
                 var app = Browser.Open();
 
                 // Any section will do, so long as it is one this environment can
-                // mount -- see WebKitSandbox.
+                // mount. These two facts reach a section by the label the tree
+                // shows rather than by type, so SkipWebKitSectionNamed does not
+                // cover them -- the row has to be stepped over instead.
                 app.Select(SectionRows().Select(row => (string) row[1])
-                                        .First(WebKitSandbox.CanMount));
+                                        .First(TestEnvironment.CanMountSectionLabelled));
                 Assert.NotNull(app.Content.FirstChild);
 
                 app.SelectCategoryRow();
@@ -111,7 +113,9 @@ namespace GtkSharp.Tests
             Run(() =>
             {
                 var app = Browser.Open();
-                var labels = app.SectionLabels().Where(WebKitSandbox.CanMount).Take(5).ToList();
+                var labels = app.SectionLabels()
+                                .Where(TestEnvironment.CanMountSectionLabelled)
+                                .Take(5).ToList();
 
                 foreach (var label in labels)
                 {
