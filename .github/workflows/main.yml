@@ -56,7 +56,7 @@ jobs:
       - name: Install the .NET 8 SDK
         run: |
           curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- \
-            --channel 8.0 --install-dir "$DOTNET_ROOT"
+            --channel 10.0 --install-dir "$DOTNET_ROOT"
           echo "$DOTNET_ROOT" >> $GITHUB_PATH
 
       - uses: actions/checkout@v4

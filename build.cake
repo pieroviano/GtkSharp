@@ -1,8 +1,16 @@
 #load CakeScripts\GAssembly.cake
 #load CakeScripts\Settings.cake
 #load CakeScripts\TargetEnvironment.cake
-#addin "Cake.FileHelpers&version=5.0.0"
-#addin "Cake.Incubator&version=7.0.0"
+
+// Cake.FileHelpers and Cake.Incubator used to be loaded here. Nothing in this
+// script or in CakeScripts/ ever called into either -- no FileWriteText, no
+// ReplaceTextInFiles, no Dump() -- so they were two downloads and two chances
+// to fail for nothing, and on a runner carrying only the .NET 10 runtime that
+// is exactly what happened: "Failed to install addin 'Cake.FileHelpers'"
+// before a single task ran.
+//
+// The one addin that IS used is in TargetEnvironment.cake, which needs
+// Microsoft.Win32.Registry to find the Gtk install on Windows.
 
 // VARS
 
@@ -14,7 +22,7 @@ var configuration = Argument("Configuration", "Release");
 
 var msbuildsettings = new DotNetMSBuildSettings();
 var list = new List<GAssembly>();
-var supportedVersionBands = new List<string>() {"8.0.100", "8.0.200", "8.0.300", "8.0.400"};
+var supportedVersionBands = new List<string>() {"10.0.100", "10.0.200", "10.0.300", "10.0.400"};
 
 // TASKS
 
