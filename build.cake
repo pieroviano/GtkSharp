@@ -14,7 +14,7 @@ var configuration = Argument("Configuration", "Release");
 
 var msbuildsettings = new DotNetMSBuildSettings();
 var list = new List<GAssembly>();
-var supportedVersionBands = new List<string>() {"8.0.100", "8.0.200", "8.0.300", "8.0.400"};
+var supportedVersionBands = new List<string>() {"10.0.100", "10.0.200", "10.0.300", "10.0.400"};
 
 // TASKS
 
