@@ -40,10 +40,12 @@ namespace GtkSharp.Tests
             Assert.NotEmpty(Sections());
         }
 
-        [Theory]
+        [SkippableTheory]
         [MemberData(nameof(Sections))]
         public void Section_constructs_and_produces_a_live_widget(string typeName)
         {
+            Skip.If(TestEnvironment.SkipWebKitSectionNamed(typeName), TestEnvironment.WebKitSkipReason);
+
             var type = typeof(SectionAttribute).Assembly.GetType(typeName);
             Assert.NotNull(type);
 

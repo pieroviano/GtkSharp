@@ -81,17 +81,39 @@ jobs:
       # launch dbus-proxy"), and the run ends mid-suite with a truncated total
       # under a "Passed!" line.
       #
-      # WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS was set here to get past that
-      # and has been removed deliberately. This job holds a GITHUB_TOKEN with
-      # packages:write, and turning the sandbox off would have meant rendering
-      # documents in that job with no isolation. The sample no longer fetches a
-      # remote page -- WebviewSection navigates to a file:// URI it writes
-      # itself -- so there is no untrusted content here to need the escape.
+      # There is a documented escape -- WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS
+      # -- and this job deliberately does not take it, because it holds a
+      # GITHUB_TOKEN with packages:write and turning off process isolation to
+      # make a test suite run is a poor trade.
       #
-      # If bwrap still cannot start in a future runner image, skip the
-      # WebKit-backed sections rather than restoring the flag.
+      # So the WebKit-backed tests are skipped here instead: two tests plus one
+      # sample section, which the Windows build loses anyway because gvsbuild
+      # ships no WebKit. They are covered on any developer machine where the
+      # sandbox can start. Note this is NOT the same thing as WebKit being
+      # absent -- the library loads fine here, it just cannot sandbox itself --
+      # which is why the switch is explicit rather than inferred.
+      #
+      # Explicit is not merely tidier here, it is the only thing that works.
+      # Inferring it was tried and is unsound: WebKit's first bwrap call is a
+      # capability check that this container passes, and the one that fails is
+      # a later, differently-shaped launch of xdg-dbus-proxy. A probe therefore
+      # reports "usable" and the host aborts anyway.
+      #
+      # Nor is loosening the container enough to earn the coverage back.
+      # Measured in debian:forky, on the same image, running only the section
+      # theory:
+      #
+      #   (default)                        -> aborts, 18 of 32
+      #   --security-opt seccomp=unconfined -> aborts, 18 of 32  (bwrap alone
+      #                                        works; WebKit still does not)
+      #   --privileged                      -> 32 of 32
+      #
+      # Only --privileged buys it, which is a far wider grant than this job --
+      # holding packages:write -- should have. Hence the skip.
       - name: Run tests headless
         run: dbus-run-session -- xvfb-run -a dotnet cake build.cake --BuildTarget=Test
+        env:
+          GTKSHARP_TESTS_SKIP_WEBKIT: 1
 
       - uses: actions/upload-artifact@v4
         with:
