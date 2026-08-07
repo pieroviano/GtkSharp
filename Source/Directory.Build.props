@@ -6,8 +6,8 @@
 	</PropertyGroup>
 
 	<PropertyGroup>
-		<PackageProjectUrl>https://github.com/GtkSharp/GtkSharp</PackageProjectUrl>
-		<RepositoryUrl>https://github.com/GtkSharp/GtkSharp</RepositoryUrl>
+		<PackageProjectUrl>https://github.com/pieroviano/GtkSharp</PackageProjectUrl>
+		<RepositoryUrl>https://github.com/pieroviano/GtkSharp</RepositoryUrl>
 		<MinimalDirectoryNuGetProps>true</MinimalDirectoryNuGetProps>
 		<!-- The version the projects' PackageReference and its two Imports both
 		     resolve through. It lives here rather than in the Directory.Nuget.Props
