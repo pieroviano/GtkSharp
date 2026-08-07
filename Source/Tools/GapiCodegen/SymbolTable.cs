@@ -48,6 +48,10 @@ namespace GtkSharp.Generation {
 			AddType (new SimpleGen ("gpointer", "IntPtr", "IntPtr.Zero"));
 			AddType (new SimpleGen ("AtkFunction", "IntPtr", "IntPtr.Zero")); // function definition used for padding
 			AddType (new SimpleGen ("gboolean", "bool", "false"));
+			// C99 bool, which graphene's headers use where the rest of the stack
+			// uses gboolean. One byte, not four - see CBoolGen.
+			AddType (new CBoolGen ("bool"));
+			AddType (new CBoolGen ("_Bool"));
 			AddType (new SimpleGen ("gint", "int", "0"));
 			AddType (new SimpleGen ("guint", "uint", "0"));
 			AddType (new SimpleGen ("int", "int", "0"));
@@ -126,8 +130,8 @@ namespace GtkSharp.Generation {
 			AddType (new ManualGen ("GList", "GLib.List"));
 			AddType (new ManualGen ("GPtrArray", "GLib.PtrArray"));
 			AddType (new ManualGen ("GSList", "GLib.SList"));
-			AddType (new ManualGen ("GVariant", "GLib.Variant"));
-			AddType (new ManualGen ("GVariantType", "GLib.VariantType"));
+			AddType (new ManualGen ("GVariant", "GLib.Variant") { NullIsNull = true });
+			AddType (new ManualGen ("GVariantType", "GLib.VariantType") { NullIsNull = true });
 			AddType (new ManualGen ("GValueArray", "GLib.ValueArray"));
 			AddType (new ManualGen ("GMutex", "GLib.Mutex",
 						"new GLib.Mutex({0})",

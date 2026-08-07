@@ -25,16 +25,39 @@ jobs:
     container:
       image: debian:forky
 
+    env:
+      DOTNET_ROOT: /usr/local/dotnet
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: 1
+
     steps:
+      # libicu is not optional: without it the .NET host aborts before Main
+      # ("Couldn't find a valid ICU package installed on the system"), which
+      # looks nothing like a missing dependency.
+      #
+      # dbus is likewise load-bearing rather than cosmetic. Gtk 4.22 on forky
+      # loads images through glycin, which runs each loader in a bwrap sandbox
+      # it talks to over a bus. With no session bus the loader cannot start and
+      # takes the test host down with it -- and a killed host still prints
+      # "Passed!", for whatever finished first. Hence dbus-run-session below.
       - name: Install build and runtime dependencies
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            ca-certificates curl git \
-            dotnet-sdk-8.0 \
+            ca-certificates curl git dbus libicu-dev \
             libgtk-4-1 libadwaita-1-0 libgtksourceview-5-0 \
             libwebkitgtk-6.0-4 libjavascriptcoregtk-6.0-1 \
             xvfb xauth
+
+      # forky has no dotnet-sdk-8.0 package at all -- Debian dropped it -- so
+      # the SDK comes from Microsoft's install script rather than from apt.
+      # $GITHUB_PATH is what carries it to the steps that follow; a plain
+      # `export` would not, each step being its own shell.
+      - name: Install the .NET 8 SDK
+        run: |
+          curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- \
+            --channel 8.0 --install-dir "$DOTNET_ROOT"
+          echo "$DOTNET_ROOT" >> $GITHUB_PATH
 
       - uses: actions/checkout@v4
         with:
@@ -50,8 +73,25 @@ jobs:
 
       # The tests call into Gtk rather than merely compiling against it, which
       # is the only way to catch a removed or missing native export.
+      #
+      # WebKit spawns its network and web processes into a bwrap sandbox, which
+      # needs user namespaces a container is not guaranteed to be allowed to
+      # create. When it cannot, it does not fail the call -- it aborts the
+      # process ("bwrap: Creating new namespace failed", then "Failed to fully
+      # launch dbus-proxy"), and the run ends mid-suite with a truncated total
+      # under a "Passed!" line.
+      #
+      # WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS was set here to get past that
+      # and has been removed deliberately. This job holds a GITHUB_TOKEN with
+      # packages:write, and turning the sandbox off would have meant rendering
+      # documents in that job with no isolation. The sample no longer fetches a
+      # remote page -- WebviewSection navigates to a file:// URI it writes
+      # itself -- so there is no untrusted content here to need the escape.
+      #
+      # If bwrap still cannot start in a future runner image, skip the
+      # WebKit-backed sections rather than restoring the flag.
       - name: Run tests headless
-        run: xvfb-run -a dotnet cake build.cake --BuildTarget=Test
+        run: dbus-run-session -- xvfb-run -a dotnet cake build.cake --BuildTarget=Test
 
       - uses: actions/upload-artifact@v4
         with:
