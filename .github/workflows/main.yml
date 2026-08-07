@@ -81,17 +81,21 @@ jobs:
       # launch dbus-proxy"), and the run ends mid-suite with a truncated total
       # under a "Passed!" line.
       #
-      # WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS was set here to get past that
-      # and has been removed deliberately. This job holds a GITHUB_TOKEN with
-      # packages:write, and turning the sandbox off would have meant rendering
-      # documents in that job with no isolation. The sample no longer fetches a
-      # remote page -- WebviewSection navigates to a file:// URI it writes
-      # itself -- so there is no untrusted content here to need the escape.
+      # There is a documented escape -- WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS
+      # -- and this job deliberately does not take it, because it holds a
+      # GITHUB_TOKEN with packages:write and turning off process isolation to
+      # make a test suite run is a poor trade.
       #
-      # If bwrap still cannot start in a future runner image, skip the
-      # WebKit-backed sections rather than restoring the flag.
+      # So the WebKit-backed tests are skipped here instead: two tests plus one
+      # sample section, which the Windows build loses anyway because gvsbuild
+      # ships no WebKit. They are covered on any developer machine where the
+      # sandbox can start. Note this is NOT the same thing as WebKit being
+      # absent -- the library loads fine here, it just cannot sandbox itself --
+      # which is why the switch is explicit rather than inferred.
       - name: Run tests headless
         run: dbus-run-session -- xvfb-run -a dotnet cake build.cake --BuildTarget=Test
+        env:
+          GTKSHARP_TESTS_SKIP_WEBKIT: 1
 
       - uses: actions/upload-artifact@v4
         with:

@@ -53,10 +53,12 @@ namespace GtkSharp.Tests
             });
         }
 
-        [Theory]
+        [SkippableTheory]
         [MemberData(nameof(SectionRows))]
         public void Selecting_a_section_mounts_it_and_shows_its_source(string category, string label)
         {
+            Skip.If(TestEnvironment.SkipWebKitSections && label == "WebView", TestEnvironment.WebKitSkipReason);
+
             Run(() =>
             {
                 var app = Browser.Open();
