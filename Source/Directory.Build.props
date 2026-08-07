@@ -1,12 +1,13 @@
 <Project>
-  <PropertyGroup>
-    <_GtkSharpNetVersion>10.0</_GtkSharpNetVersion>
-    <_GtkSharpSourceDirectory>$(MSBuildThisFileDirectory)</_GtkSharpSourceDirectory>
-    <_GtkSharpBuildOutputDirectory>$(MSBuildThisFileDirectory)..\BuildOutput\</_GtkSharpBuildOutputDirectory>
-  </PropertyGroup>
+	<PropertyGroup>
+		<_GtkSharpNetVersion>10.0</_GtkSharpNetVersion>
+		<_GtkSharpSourceDirectory>$(MSBuildThisFileDirectory)</_GtkSharpSourceDirectory>
+		<_GtkSharpBuildOutputDirectory>$(MSBuildThisFileDirectory)..\BuildOutput\</_GtkSharpBuildOutputDirectory>
+	</PropertyGroup>
 
-  <PropertyGroup>
-    <PackageProjectUrl>https://github.com/GtkSharp/GtkSharp</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/GtkSharp/GtkSharp</RepositoryUrl>
-  </PropertyGroup>
+	<PropertyGroup>
+		<PackageProjectUrl>https://github.com/GtkSharp/GtkSharp</PackageProjectUrl>
+		<RepositoryUrl>https://github.com/GtkSharp/GtkSharp</RepositoryUrl>
+		<MinimalDirectoryNuGetProps>true</MinimalDirectoryNuGetProps>
+	</PropertyGroup>
 </Project>
