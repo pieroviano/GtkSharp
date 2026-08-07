@@ -49,11 +49,11 @@ jobs:
             libwebkitgtk-6.0-4 libjavascriptcoregtk-6.0-1 \
             xvfb xauth
 
-      # forky has no dotnet-sdk-8.0 package at all -- Debian dropped it -- so
-      # the SDK comes from Microsoft's install script rather than from apt.
+      # forky has no dotnet-sdk package at all -- Debian dropped it -- so the
+      # SDK comes from Microsoft's install script rather than from apt.
       # $GITHUB_PATH is what carries it to the steps that follow; a plain
       # `export` would not, each step being its own shell.
-      - name: Install the .NET 8 SDK
+      - name: Install the .NET 10 SDK
         run: |
           curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- \
             --channel 10.0 --install-dir "$DOTNET_ROOT"
