@@ -88,8 +88,23 @@ jobs:
       # remote page -- WebviewSection navigates to a file:// URI it writes
       # itself -- so there is no untrusted content here to need the escape.
       #
-      # If bwrap still cannot start in a future runner image, skip the
-      # WebKit-backed sections rather than restoring the flag.
+      # bwrap indeed cannot start here: Docker's default seccomp profile
+      # refuses clone(CLONE_NEWUSER), so the container gets no user namespace.
+      # As this comment used to instruct, the WebKit-backed sections are now
+      # skipped rather than the flag restored -- GtkSharp.Tests/WebKitSandbox.cs
+      # runs the same operation bwrap would, before anything constructs them.
+      #
+      # That costs the WebKit page-load coverage. To buy it back, give the
+      # container the namespace and leave WebKit's own sandbox on:
+      #
+      #   container:
+      #     image: debian:forky
+      #     options: --security-opt seccomp=unconfined
+      #
+      # The skip is self-disabling -- its probe then succeeds and the sections
+      # run again, with nothing here to undo. It has not been enabled by
+      # default because it relaxes the syscall filter for the whole job, this
+      # one included, and that is a wider grant than the coverage is worth.
       - name: Run tests headless
         run: dbus-run-session -- xvfb-run -a dotnet cake build.cake --BuildTarget=Test
 
