@@ -15,8 +15,8 @@ container under `xvfb-run`.
 **Run it on both platforms before trusting a change.** Windows and Linux each
 see defects the other structurally cannot: gvsbuild ships no WebKit, so two
 tests skip there, while the `g_spawn_*_utf8` symbols only exist on Windows and
-so only broke there. At 835 tests Windows reports 832 passing with 3 skips, and
-the forky container 834 passing with 1.
+so only broke there. At 951 tests Windows reports 948 passing with 3 skips, and
+the forky container 950 passing with 1.
 
 ### Running the suite on the Gtk the bindings describe
 
@@ -53,6 +53,51 @@ not say what is wrong:
 Both aborts land under a **"Passed!" line with a truncated total** — the failure
 mode this document keeps returning to. 135 of 766 was the shape of the WebKit
 one.
+
+### The WebKit sandbox, and why the switch is a switch
+
+The alternative to that flag is `GTKSHARP_TESTS_SKIP_WEBKIT=1`, which is what CI
+sets. `TestEnvironment` reads it and skips the WebKit-backed cases —
+`OptionalLibraryTests`, and the WebView section in `SampleSectionTests`,
+`ChildWindowTests` and `SectionBrowsingTests`. **Set one or the other when
+running the suite in a container**; leave both unset on a desktop, where the
+sandbox starts and WebKit is covered.
+
+It has to be decided in advance either way. The abort is a `g_error` inside
+WebKit, not an exception: no `try` reaches it, and by the time it prints, the
+host is gone.
+
+**Detecting it instead was tried and does not work.** The obvious probe — run
+the operation bwrap begins with, `bwrap --unshare-user --ro-bind / / /bin/true`,
+against the binary WebKit will spawn — reports success in a container where
+WebKit still aborts. Shimming `/usr/bin/bwrap` to log its argv shows why: WebKit
+makes four calls, and the first is a capability check shaped like the probe,
+which passes. The one that fails is the fourth,
+
+```text
+bwrap --args 217 -- /usr/bin/xdg-dbus-proxy --args=213
+```
+
+whose failure is `Creating new namespace failed: Operation not permitted` —
+bubblewrap's message for a namespace other than the user one, not the
+`No permissions to create a new namespace…` a blocked `CLONE_NEWUSER` produces.
+So the probe answers a question WebKit is not asking, and a probe that can say
+"usable" and then abort is worse than no probe: a wrong "skip" costs coverage, a
+wrong "run" costs the whole suite.
+
+Loosening the container does not earn the coverage back cheaply either. Measured
+on one image, running only the section theory:
+
+| container | result |
+|---|---|
+| *(default)* | aborts, 18 of 32 |
+| `--security-opt seccomp=unconfined` | aborts, 18 of 32 |
+| `--privileged` | 32 of 32 |
+
+`seccomp=unconfined` is enough for `unshare -U true` and for bwrap on its own —
+Docker's default profile is what blocks `clone(CLONE_NEWUSER)` — and still not
+enough for WebKit. Only `--privileged` is, and that is a far wider grant than a
+job holding a `packages:write` token should have.
 
 ---
 
@@ -168,7 +213,10 @@ investigate — not something to relax.
 | `SatelliteAssemblyTests` | The three assemblies whose generated surface nothing had reached: libadwaita, GtkSourceView and Gsk. Render-node trees serialised and read back, node bounds composed by arithmetic the test does itself, `GskTransform`'s builder chain and the NULL that means the identity, `GskPathBuilder`; GtkSourceView's language guessing, line sorting, search occurrence counts, syntax context classes, regions and snippets; libadwaita's navigation stack, view-stack pages, toasts, style manager, spring params and breakpoint conditions. |
 | `AuthoringTests` | The other direction: a C# program **writing** Gtk types rather than calling them, which is the code that runs C into managed. GType registration and `[GLib.TypeName]`, `[GLib.Property]` read and written through GObject rather than through C#, `notify::`, `Gtk.Builder` constructing a managed type by name, declaring an activation signal by overriding `OnActivate`, virtual overrides proved by asking a *parent* for the answer, chaining to a base vfunc, a `Gtk.LayoutManager` subclass placing children by transforms the test does the arithmetic for, and `[Gtk.Template]`/`[Child]`. |
 | `GLibDeepTests` | The rest of hand-written GLib: `HookList`'s ABI description checked against the struct `g_hook_list_init` actually writes, the container half of `Variant`/`VariantType` (tuples, arrays, maybes, dict entries, subtyping), `Bytes` slicing and ownership, the `Marshaller` helpers below the ones every binding uses, and the two branches of `GLib.Signal` that only a returning signal or an emission hook reaches. |
+| `GioDeepTests` | The half of Gio that needs a filesystem and a main loop. GSettings over a schema the test writes and compiles with `glib-compile-schemas`, stored through a **keyfile backend** so the oracle is the ini file on disk rather than anything GSettings remembers: defaults, writes, resets, user value versus default, ranges, the `changed` signal, delay/apply/revert, enum and flags nicknames, a child schema, and a two-way binding to a widget property. Then `GFileMonitor` over a directory the test builds, the async pattern end to end (callback thread, `GAsyncResult`, what `Finish` returns), `GCancellable` stopping a walk that has already started, `GFileInfo` attributes, `GFileEnumerator`, and `GFile` copy/move/rename/delete with their error codes. |
+| `GrapheneMathTests` | Graphene, and the arithmetic half of Gsk — the corner of the tree with the best oracles there are, because every answer can be worked out in the test: a matrix times its inverse, a 3-4-5 triangle's area, a ray entering a box spanning [-1,1] at t=4, the six planes of a 60-degree frustum meeting the axis at 30 degrees. Matrix multiply/invert/decompose/transpose/interpolate/project, the vectors, rectangle intersection and the in-place trap, quad, triangle and barycentric coordinates, box, sphere, plane, ray, frustum, euler and quaternion; then `GskTransform`'s conversions and render-node bounds. Four codegen defects and a heap corruption; four pieces of graphene behaviour pinned because the obvious expectation is wrong. |
 | `ExpressionTests` | `GtkExpression`: how the Gtk 4 list stack reads a value out of an item, and how a property is kept in step with one on another object. Property, constant, object, closure, cclosure and try expressions; evaluation against a this-object and the GValue it fills; watches and their invalidation; `Bind` and what a failed evaluation does to the target; expression-driven `StringSorter`, `NumericSorter`, `StringFilter` and `BoolFilter` over a list model. Four defects; the oracles are the length of a word, an alphabet and a set of ages chosen here. |
+| `ControlsAndTransferTests` | The controls an application is built out of, and the two subsystems Gtk 4 replaced wholesale. Entry and `GtkEditable` over non-ASCII text (a position is characters, a length is bytes); adjustment clamping and the two signals that separate a change of range from a change of value; spin button stepping, wrapping and snapping; scale marks; level-bar offsets; progress-bar pulse; calendar; notebook reordering; `Gtk.Stack.Pages` as a list model; expander, popover, drop-down, scrolled window, search entry and search bar. Then `Gdk.Clipboard` — set, read back asynchronously, and the mime types Gdk negotiates around a `GValue` — and `GtkDragSource`/`GtkDropTarget`, whose signals are emitted directly against a subclass's vfuncs, because no drag can be started without a pointer device. Five defects. |
 
 ### Guards against vacuous passes
 
@@ -1260,6 +1308,163 @@ two affected tests now `Quiesce ()` first — run until nothing has been
 dispatched for longer than that 50 ms, capped so that a permanently-ready idle
 fails the run instead of hanging it.
 
+## Fixed: the error was checked after the return value had been converted
+
+Every generated method that both returns something and takes a `GError **`
+emitted this order:
+
+```csharp
+IntPtr raw_ret = gdk_clipboard_read_value_finish (Handle, …, out error);
+GLib.Value ret = (GLib.Value) Marshal.PtrToStructure (raw_ret, typeof (GLib.Value));
+if (error != IntPtr.Zero) throw new GLib.GException (error);   // never reached
+```
+
+On failure a C function's return value is undefined and is, in practice, NULL —
+and `Marshal.PtrToStructure` raises `NullReferenceException` on NULL. So asking
+the clipboard for a type it does not hold, which is an ordinary answer rather
+than a fault, produced an exception naming nothing, from a line that had the
+real reason sitting in a variable one line below, and leaked the `GError`.
+
+`Method.GenerateBody` now emits the throw **after** the parameter clean-up (so
+nothing marshalled for the call leaks) and **before** the return value is
+converted. Seven call sites convert through `Marshal.PtrToStructure` and would
+have crashed; sixteen more wrap NULL in a `GLib.Bytes` or `GLib.List` and merely
+made the wrong object first.
+
+`ByRefGen.FromNative` gained the matching NULL guard, because NULL is not always
+a failure: `gtk_drop_target_get_value` returns it whenever no drag is in
+progress, which is nearly always, so simply **reading `DropTarget.Value` — the
+first thing anyone does writing a drop handler — threw**. It answers
+`default (GLib.Value)` now, which is `G_VALUE_INIT`. The guard names the source
+twice, so it is only applied when that source is a plain identifier, the same
+rule `ManualGen`'s `NullIsNull` guard follows.
+
+## Fixed: two more array-plus-count parameters
+
+The `gsk_container_node_new` family again, this time in the drag-and-drop stack.
+
+- **`gtk_drop_target_set_gtypes (const GType *, gsize)`** came out as
+  `SetGtypes (GLib.GType types, ulong n_types)` and passed `types.Val` as the
+  address of the array — `G_TYPE_STRING` is 64, so GTK dereferenced address 64 —
+  while `gtk_drop_target_get_gtypes` wrapped the array's address in a
+  `GLib.GType` and returned a type whose value is a pointer. The constructor
+  takes a single type, so this pair is the **only** way to make one drop target
+  accept two, and it could not be used at all.
+
+- **`gdk_content_provider_new_union (GdkContentProvider **, gsize)`** came out as
+  `ContentProvider (Gdk.ContentProvider providers, ulong n_providers)`, so GDK
+  read the provider's own `GTypeInstance` class pointer as element zero. This is
+  how a drag source offers one thing several ways — a file as a URI and as an
+  image — which is the entire reason the union provider exists. Both the array
+  and a reference to each element are `(transfer full)`: the array has to come
+  from `g_malloc` because GDK keeps it and `g_free`s it, and the references have
+  to be **taken** here rather than surrendered, or the managed wrappers are left
+  holding pointers the union has already released.
+
+Both are hidden in the metadata and rebound in
+`Source/Libs/GtkSharp/DropTarget.cs` and `Source/Libs/GdkSharp/ContentProvider.cs`.
+
+## Fixed: a selection model that could not be enumerated
+
+`GtkSelectionModel`'s gir says `<prerequisite name="Gio.ListModel"/>`: every
+selection model **is** a list model, and the selection interface has no way to
+ask what is in it. `GirToGapi` drops prerequisites and the api.xml has nowhere to
+put them, so `Gtk.ISelectionModel` derived from `GLib.IWrapper` alone.
+
+That was invisible for as long as the object behind the interface was a bound
+concrete type — `Gtk.SingleSelection` and `Adw.ViewStackPages` are generated as
+`: GLib.Object, GLib.IListModel, Gtk.ISelectionModel`, so `(GLib.IListModel)` on
+them succeeds. But `SelectionModelAdapter.GetObject` falls back to wrapping the
+handle whenever the concrete GType is one this binding does not know, and
+**`GtkStackPages` is private to GTK and appears in no gir**. So `Gtk.Stack.Pages`
+— the only way in Gtk 4 to enumerate a stack's pages, and the object a
+`GtkStackSwitcher` is driven from — came back as an adapter that threw
+`InvalidCastException` and had no `NItems`, no `GetObject` and no
+`items-changed`.
+
+`Source/Libs/GtkSharp/SelectionModelAdapter.cs` adds `GLib.IListModel` to the
+partial interface (C# unions the base lists of a partial declaration) and
+implements it **explicitly** on the adapter over a `GLib.ListModelAdapter`,
+which keeps it clear of the adapter's own static `GetObject` overloads. The
+general fix — teaching `GirToGapi` and `GapiCodegen` about interface
+prerequisites — is still open; only `SelectionModelAdapter` was in this state.
+
+## Fixed: two signal arguments Signal.Emit could not build
+
+`GLib.Signal.Emit` builds each parameter's `GValue` with `new GLib.Value (arg)`,
+which reads the GType off the argument's own managed type. Two ordinary
+arguments have no such type:
+
+- **A null object.** `GtkDropTarget::accept` is emitted with a nullable
+  `GdkDrop`, and `obj.GetType ()` on null is a `NullReferenceException` thrown
+  from inside the constructor. The type now comes from the signal itself —
+  `g_signal_query` already returns `param_types`, whose entries carry
+  `G_SIGNAL_TYPE_STATIC_SCOPE` in the low bit exactly as `return_type` does and
+  have to be masked the same way.
+
+- **A `GLib.Value`.** `GtkDropTarget::drop` declares its payload as
+  `G_TYPE_VALUE`, a boxed GValue inside the signal's own GValue. `typeof
+  (GLib.Value)` is not a GType at all, so the emission produced a value of no
+  usable type, went through, and the handler threw "Unknown type" out of the
+  marshaller where nothing can catch it. `GLib.Value.NewBoxedValue` boxes it
+  properly, which is what makes **the one signal a drop target exists for**
+  reachable from managed code. It is a named static rather than a constructor
+  overload because `new Value (someValue)` already binds to `Value (object)` and
+  means something else.
+
+`Emit` also checks the argument count against `query.n_params` now and names the
+mismatch, rather than handing `g_signal_emitv` a short array.
+
+## Controls and transfer: behaviour worth knowing
+
+Found by assertions that were wrong, and pinned because in each case the
+plausible reading produces a wrong answer rather than an error:
+
+- **`gtk_spin_button_spin` reads its `increment` argument for a step and ignores
+  it for a page.** `STEP_FORWARD` moves by the *argument* — the adjustment's
+  step increment plays no part at all, which makes it identical to
+  `USER_DEFINED` — while `PAGE_FORWARD` moves by the adjustment's *page
+  increment* and ignores the argument. So a caller who sets a step increment of
+  3 and asks for one step gets 1.
+- **`gtk_adjustment_set_upper` does not re-clamp the value.** An adjustment
+  whose model shrank reports a value its own range no longer contains, and only
+  the *next* write — even a write of the same number — brings it back.
+  `Configure` clamps; the individual setters do not.
+- **An adjustment's reachable maximum is `upper - page_size`.** Code that treats
+  `Upper` as the maximum scrolls to a position the adjustment will not take and
+  is told nothing.
+- **`SnapToTicks` acts when the text is parsed, not when `Value` is assigned**,
+  so nothing snaps until `Update ()`. Setting the value and reading it straight
+  back suggests the property does nothing.
+- **`GtkCalendar:month` counts from zero** (it is `struct tm`'s) while the
+  `GDateTime` from `gtk_calendar_get_date` counts from one (it is GLib's).
+  Round-tripping a date through a calendar without the conversion moves it a
+  month and yields a perfectly plausible answer.
+- **`GtkLevelBar::offset-changed` is emitted by *defining* an offset**, not by
+  the value crossing one, and removing an offset says nothing at all.
+- **Pulsing a progress bar is invisible from managed code.** `Fraction` stays 0
+  and emits no `notify`, so there is nothing to bind to and no way to ask
+  whether the bar is in pulse mode.
+- **A `GtkDropDown` always has something selected.** It wraps its model in a
+  `GtkSingleSelection` with autoselect on, so `GTK_INVALID_LIST_POSITION` — the
+  value that means "nothing" everywhere else in the list stack — is refused
+  without a word, and swapping the model resets the selection to 0.
+- **`GtkSearchEntry` delays `::search-changed` by `SearchDelay`, except when the
+  entry becomes empty**, which is reported at once. A test that only types never
+  sees the asymmetry.
+- **A widget's measured size is not stable across this suite.** `AdwaitaTests`
+  calls `adw_init`, which replaces the process's stylesheet, so metrics measured
+  before and after it differ: a `GtkScale` with an unlabelled mark measures 40
+  against a bare 34 on its own and **28** against 34 inside the suite. Only
+  comparisons that hold under any stylesheet may be asserted — a label is a line
+  of text, so it needs a line of room either way.
+- **`GtkStack::transition-running` is a fact about being drawn.** The transition
+  runs off the frame clock, which an unmapped widget does not have, so switching
+  the visible child of a stack that is not on screen never starts one.
+- **A popover's parent is set with `gtk_widget_set_parent`**, not by adding it to
+  a container, and its child's parent is not the popover — it is wrapped in the
+  popover's own contents box.
+
 ## Measuring coverage
 
 Coverage is measured, not chased:
@@ -1362,3 +1567,379 @@ construction: testing one property round-trip exercises the same emission path
 as the thousand others like it. High line coverage over generated code is
 therefore close to meaningless. The parts worth testing are the hand-written
 layer, the codegen's decisions, and the places where Gtk 4 changed semantics.
+
+## Fixed: two signals called "changed", one args class
+
+Exactly the shape `GMenuModel::items-changed` had, one namespace over.
+`GSettings::changed` carries a key name; `GFileMonitor::changed` carries
+`(GFile *file, GFile *other_file, GFileMonitorEvent event_type)`. GapiCodegen
+names a signal's args class after the signal, so both asked for
+`GLib.ChangedArgs`, and only one of them could have it.
+
+GSettings won. A `FileMonitor.Changed` handler was therefore handed an args
+object whose single member reads `Args[0]` as a `string` — and `Args[0]` is a
+`GFile`. The cast threw `InvalidCastException` from inside the signal
+marshaller, and nothing on the args named the file, the event type or the rename
+destination. **The one signal a file monitor exists to raise could not be used
+for anything.**
+
+The monitor's signal is renamed in `GioSharp.metadata`, so it is
+`FileMonitor.FileChanged` with a `FileChangedArgs` carrying `File`, `OtherFile`
+and `EventType`. The cname stays `changed`; nothing about what is connected
+natively changes.
+
+**Where else to look:** two signals of the same name in one assembly is a
+collision by construction, not an accident. The check is a grep for
+`typeof (GLib.XArgs)` across an assembly's `Generated/` and a count of the
+distinct types that emit each one.
+
+## Fixed: g_settings_schema_source_list_schemas read an array as a string
+
+The function fills two `gchar ***` out-parameters — two NULL-terminated string
+arrays the caller owns. `SymbolTable` has no rule for a triple pointer, so
+codegen fell back to `out IntPtr` and then ran `PtrToStringGFree` over it: it
+read the **array of pointers** as though the first bytes of a heap address were
+UTF-8 text, freed the array, and leaked every string in it. It is hidden in the
+metadata and rebound over `string[]` in
+`Source/Libs/GioSharp/SettingsSchemaSource.cs`.
+
+## Fixed: a property that generated nothing also suppressed its own accessor
+
+`ClassBase.IgnoreMethod` drops a `GetX` method whenever a property called `X`
+exists, on the assumption that the property will carry the getter. It does not
+always: `Property.Generate` bails out on `!Readable && !Writable`, and GObject
+reports `GFileEnumerator:container` as construct-only and write-only. So the
+property emitted nothing, the method was suppressed, and
+`g_file_enumerator_get_container` — the only way to turn a `GFileInfo` back into
+a path without remembering where the walk started — **could not be reached from
+managed code at all**.
+
+The early-out now also asks whether the property has a real accessor method
+behind it, which is what the `Getter`/`Setter` machinery in `PropertyBase`
+exists for. Five properties across the whole tree are in this state, and all
+five were inaccessible: `GFileEnumerator:container`,
+`GApplicationCommandLine:arguments` and `:platform-data`,
+`GSubprocessLauncher:flags`, and `JSCWeakValue:value`.
+
+## Fixed: a NULL GVariant came back as a wrapper around IntPtr.Zero
+
+`g_settings_get_user_value` returns NULL to say "the user has never written this
+key" — that is the whole point of the call, and the only way to tell a value
+apart from a default. `ManualGen.FromNative` emitted `new GLib.Variant (raw_ret)`
+with no guard, so the caller got a live-looking object with `Handle == 0`, which
+compares non-null, blows up on use, and made `g_variant_ref_sink` log a CRITICAL
+on the way in. 67 GVariant returns and 17 GVariantType returns had the shape.
+
+The guard is **opt-in** rather than blanket, because it is not true of every
+manual type: a NULL `GList *` **is** the empty list, and turning that into null
+would break every caller that iterates a result. Only `GVariant` and
+`GVariantType` declare `NullIsNull`. It also only applies when the source
+expression is a plain identifier, since the guard names it twice — `FieldBase`
+and `DefaultSignalHandler` pass a call expression and keep the unguarded form.
+
+## Fixed: Dispose released the object before disconnecting its handlers
+
+`GLib.Object.Dispose (true)` did this:
+
+```csharp
+tref.Dispose ();                 // g_object_remove_toggle_ref -> may finalize
+foreach (var sig in signals.Keys)
+        signals[sig].Free ();    // g_signal_handler_is_connected (raw_ptr, id)
+```
+
+`SignalClosure` keeps its own copy of the raw GObject pointer. When the toggle
+ref held the last reference — the normal case for an object the program made and
+then disposed — the GObject was finalized inside `tref.Dispose ()`, and the
+disconnect that followed read freed memory. The finalizer branch ten lines below
+already had the order right (`QueueSignalFree ()` then `tref.QueueUnref ()`); the
+disposing branch is now the same way round.
+
+This was found while chasing the monitor crash below, and it is **not** what
+caused it. It has no test of its own, because making it fail on demand needs the
+GObject's freed memory to be reused between the two calls; it is kept because
+the two branches of one method disagreeing about ordering is a defect whichever
+way the race happens to fall.
+
+## Fixed: GLib.FileFactory leaked every GFile it made
+
+`g_file_new_for_path`, `_for_uri` and `_for_commandline_arg` all return a new
+reference. `FileFactory` passed `owned: false` to `FileAdapter.GetObject`, which
+then took a *second* one, so nothing created through this class was ever freed —
+and this class is how the samples, the tests and the documentation all make a
+`GFile`. The generated `GLib.File.NewForPath` sitting beside it passes `true`,
+which is the authority for what the ownership is.
+
+## Open: unreffing a cancelled GFileMonitor corrupts the heap on Windows
+
+Reproducible outside the test host, in about four runs in five:
+
+```csharp
+var monitor = GLib.FileFactory.NewForPath (dir)
+              .MonitorDirectory (GLib.FileMonitorFlags.None, null);
+monitor.Cancel ();
+/* iterate the main loop for ~1 s */
+monitor.Dispose ();          // exit code 0xC0000374, STATUS_HEAP_CORRUPTION
+```
+
+All three parts are needed: without the `Cancel ()`, or without the main-loop
+iterations in between, twenty rounds run clean. No signal handler need be
+attached, and it is a heap corruption rather than an access violation, which
+points at glib's win32 backend freeing a buffer an outstanding
+`ReadDirectoryChangesW` still owns rather than at anything in this binding. It
+does not reproduce on Linux's inotify backend.
+
+`GioDeepTests`' two monitor tests therefore do not dispose their monitor; the
+wrapper is collected instead, which defers the unref onto a main-loop timeout,
+and is what every other test here does anyway. The comment in the test says so,
+so that nobody "tidies up" by adding a `using`.
+
+It is also a reminder that the exit code is worth reading. `dotnet test` prints
+"Test host process crashed" for every one of these, and the diagnostic log has
+nothing in it; running the same code standalone and asking Windows for the
+process exit code separated a heap corruption (`0xC0000374`) from the access
+violations the rest of this document is about in one step.
+
+## Gio: behaviour worth knowing
+
+- **`g_file_copy`'s progress callback is called a platform-dependent number of
+  times.** On Linux a local-to-local copy is one `copy_file_range` and reports
+  **once**; the fallback path Windows takes reports per buffer. What holds on
+  both is that every report carries the same total and the last one has
+  `current == total`. An assertion that a megabyte takes more than one buffer
+  passes on Windows and fails on Linux.
+- **Cancelling from that progress callback therefore does not reliably cancel
+  the copy.** With no loop there is no place to check the cancellable, so on
+  Linux the copy finishes and reports success. An in-flight cancellation test
+  needs an operation that is genuinely iterative — a `GFileEnumerator` walk is
+  the portable one.
+- **A cancelled async operation still calls back.** Skipping the `Finish` call
+  because "it was cancelled anyway" leaks the `GTask` every time; the callback
+  runs and `Finish` raises `G_IO_ERROR_CANCELLED`.
+- **A Gio async callback runs on the thread that started the operation**, via
+  its thread-default main context — which is what makes the pattern usable from
+  a Gtk program at all, and is worth an explicit assertion rather than an
+  assumption.
+- **A `GFileInfo` only carries the attributes that were asked for**, and reading
+  one that was not is not an error: `standard::size` off an info queried for
+  `standard::name` is **0**, which looks exactly like an empty file.
+- **`g_settings_reset` deletes the key rather than writing the default back**,
+  which is what lets a later change of default reach the user. In a keyfile
+  backend the line disappears from the file.
+- **A `GSettingsSchemaKey`'s range is `(sv)`** — the word `"range"` and a
+  *boxed* variant holding `(min, max)`. Reading the second child as the tuple
+  gives one child, not two.
+- **An interface adapter is a fresh wrapper every time.**
+  `FileAdapter.GetObject` does not cache the way `GLib.Object.GetObject` does,
+  so two lookups of one `GFile` are not reference-equal; `g_file_equal` is how
+  to compare them.
+- **`glib-compile-schemas` is not on `PATH` on Debian.** `libglib2.0-0` puts it
+  in `/usr/lib/<triplet>/glib-2.0/`, and only `libglib2.0-dev-bin` — which
+  nothing in the Gtk dependency chain pulls in — installs the copy in
+  `/usr/bin`. A test that needs it has to look in the multiarch directory or it
+  will skip on the reference container while passing on Windows, where gvsbuild
+  ships it in `bin/`.
+
+## Fixed: the two things graphene's gir says that nothing else's does
+
+Graphene had 52% coverage and no defects on record, which turned out to mean
+that almost none of it existed.
+
+**Its predicates returned a type the symbol table did not know.** Graphene's
+headers include `<stdbool.h>`, so its gir says
+`<type name="gboolean" c:type="bool"/>` where every other library in the tree
+says `gboolean`. `GirToGapi` writes the C type through, `SymbolTable` had no
+entry for `bool`, and codegen drops a method whose return type does not
+resolve — **silently, and all 49 of them**:
+
+| gone | what could not be done |
+|:--|:--|
+| `graphene_matrix_inverse`, `graphene_matrix_decompose` | undo or take apart a transform |
+| `graphene_matrix_is_2d`, `_is_identity`, `_is_singular` | ask a matrix anything |
+| `graphene_rect_contains_point`, `_contains_rect`, `_intersection` | hit-test or clip |
+| `graphene_box_intersection`, `_contains_point`, `_contains_box` | the same in 3D |
+| `graphene_ray_intersects_*`, `graphene_frustum_intersects_*` | picking, culling |
+| every `_equal` and `_near`, on every type | compare two values |
+
+`CBoolGen` maps it. C99's `bool` is **one byte** and only the low byte of the
+return register is architecturally defined, so it marshals as a `byte` and is
+compared against zero rather than being handed to the runtime as a `bool`,
+whose default marshalling reads the four bytes a `gboolean` occupies. gcc and
+clang zero-extend; MSVC does not promise to, and gvsbuild is MSVC.
+
+**And a fixed-size array parameter came out as one element.** `CTypeMapper`
+drops `float v[16]` to its element type, which is right for a *field* — the
+`array_len` attribute carries the count — and wrong for a parameter, where it
+left the binding passing a single `float` in a vector register to a callee that
+writes sixty-four bytes through a pointer register nobody set. Twenty-one
+parameters, across four assemblies:
+
+- `graphene_matrix_to_float` / `_init_from_float` — reading a matrix's sixteen
+  elements out, and building one from them, which is the most basic thing there
+  is to do with a matrix.
+- `graphene_vec2/3/4_to_float` / `_init_from_float`,
+  `graphene_triangle_init_from_float`.
+- `gsk_border_node_new` and `gtk_snapshot_append_border` — `const float [4]`
+  plus `const GdkRGBA [4]`, so GSK read four colours out of one.
+- `gdk_texture_downloader_download_bytes_with_planes` — two `gsize [4]`
+  out-buffers filled through scalars.
+
+`ArrayParameter` already had a `FixedArrayLength` field and nothing working
+behind it: it emitted an allocation for a by-value parameter and passed the
+array as `out T[]`, which is a `T**`. It now sizes and pins the buffer for a
+callee-filled one, **checks the length** of a caller-supplied one — C cannot,
+because there is no count argument — and never passes an array as an `out`.
+
+Four of the twenty-one are N boxed structs end to end, which no attribute can
+express: every graphene type is bound as a class, so a `Vec3[]` marshals as an
+array of addresses rather than as 8 x 16 bytes. `Parameters.Validate` drops
+those with a warning instead of emitting the overrun, and
+`GrapheneSharp/FixedVertexArrays.cs` binds `Rect.GetVertices`,
+`Box.GetVertices`, `Frustum.GetPlanes` and `Quad.InitFromPoints` by hand over
+contiguous buffers.
+
+## Fixed: graphene's SIMD vector is aligned and the ABI description could not see it
+
+`graphene_simd4f_t` is `__m128` on any SIMD build, so it aligns to 16. Its
+managed replica is four plain floats and aligns to 4, and `AbiStruct` measures a
+field's alignment by asking the runtime where the replica lands after a leading
+`sbyte` — so **everything embedding it was measured short**:
+
+| | abi_info said | C |
+|:--|--:|--:|
+| `graphene_plane_t` `{ vec3; float }` | 20 | 32 |
+| `graphene_euler_t` `{ vec3; enum }` | 20 | 32 |
+| `graphene_sphere_t` `{ vec3; float }` | 20 | 32 |
+| `graphene_frustum_t` `{ plane[6] }` | 120 | 192 |
+
+That number is what every caller-allocates out parameter of those types
+allocates before handing the pointer to graphene, so `Plane.Negate`,
+`Plane.Normalize`, `Plane.Transform`, `Triangle.Plane`, `Box.BoundingSphere`,
+`Sphere.Translate` and `Euler.Reorder` each let it write twelve bytes past the
+end. Reading a frustum's planes gave four plausible ones and two assembled out
+of denormal floats, because the stride was twelve short — the four that looked
+right are how it survived.
+
+The measurements come from graphene: writing a plane with a marked constant into
+a zeroed block puts the constant at offset **16**, not 12, and the six planes of
+a 60-degree perspective frustum land **32 bytes** apart.
+`GenBase.GenerateAlign` now honours an `align` attribute on a `<struct>`, and
+`GrapheneSharp.metadata` states it once, for `graphene_simd4f_t`. Every other
+graphene type's size was already right and stays right.
+
+## Fixed: freeing a caller-allocated block with the wrong allocator
+
+The worst of the four, and the one with no symptom at the call site.
+
+A caller-allocates out parameter is storage this side provides and the wrapper
+then *owns*, so it ends up at the type's own free function. **Those do not all
+free what `g_malloc` allocates.** Graphene allocates everything holding a SIMD
+vector with `graphene_aligned_alloc` — `_aligned_malloc` where the compiler has
+it — and frees it with `_aligned_free`, which cannot be given a `g_malloc`
+pointer. `Matrix.Multiply`, `Matrix.Inverse`, `Matrix.Transpose`, `Vec3.Cross`,
+`Vec3.Normalize`, `Plane.Negate` and two dozen others handed it one every time.
+
+Nothing happens at the call. The generated `Opaque` finalizer queues its free
+onto a **50 ms main-loop timeout**, so the damage lands whenever the GC ran and
+the loop turned — in a test run that is some unrelated test, as a bare "test
+host process crashed" with an empty diagnostic log and a total that moves
+between runs. Asking Windows for the exit code is what named it:
+`0xC0000374`, `STATUS_HEAP_CORRUPTION`. Reproducing it needs all three of
+allocate, collect and pump; twenty rounds of that fail every time and a single
+call never does.
+
+`graphene_rect_t` is the exception that let 871 tests pass over this: it needs
+no alignment, so its allocator is `calloc` and its free is `free`. Nothing in
+the suite had ever allocated a graphene *matrix* or *vector* through this path.
+
+`GLib.Opaque.AllocateNative` now takes the block from the type's own allocator —
+its parameterless constructor (`new Graphene.Vec3 ()` *is*
+`graphene_vec3_alloc`) or its static `Alloc` — and falls back to the zeroed
+`g_malloc` that all of these used to get for the two types that have neither,
+`Gtk.BitsetIter` and `Gsk.PathPoint`. The factory is resolved once per type and
+cached, because this is what every matrix multiply allocates.
+`Pango.GlyphString` was in the same state and is fixed by the same change.
+
+**The rule: whatever will free the block has to have allocated it.** The size
+being right is not enough.
+
+Caller-allocated buffers are also `g_malloc0`'d rather than `g_malloc`'d now,
+because a callee does not always write the whole struct — see
+`graphene_sphere_translate` below. Zeroing does not make the answer right; it
+makes it the same every time, which is the difference between a defect a test
+can pin and one that looks like a flake.
+
+## Graphene: behaviour worth knowing
+
+Four of these were found by an assertion that turned out to be wrong, and every
+one of them is a plausible assumption that produces silently wrong results.
+
+- **`graphene_matrix_determinant` returns the *negative* determinant.** The
+  identity's is `-1`. The magnitude is right, so it survives every test that
+  squares it or compares it against zero — and the sign is the one thing a
+  determinant is actually used for, since a negative one means the handedness
+  was flipped. A renderer reversing its winding order on `determinant < 0` does
+  it on exactly the wrong matrices. `IsSingular` is unaffected: zero has no
+  sign.
+- **`graphene_euler_reorder` does not preserve the rotation.** It reads like a
+  change of spelling and is documented as one. Reordering `Sxyz(10,20,30)` into
+  `Rzyx` gives the angles the textbook identity predicts — `(30,20,10)` — and
+  then graphene's own `to_matrix` reads them back as a different rotation, the
+  3x3 anti-transpose. Of the thirty-one orders only the ones that are `Sxyz`
+  under another name survive the round trip. Normalising a set of euler angles
+  into a preferred order silently rotates the object.
+- **`graphene_matrix_interpolate` is not exact at its endpoints.** It does not
+  blend the sixteen elements: it decomposes both matrices into translation,
+  scale, shear, perspective and a quaternion, blends those and multiplies a
+  fresh matrix out. Factor 0 therefore does *not* return the source — it returns
+  it carrying about 2.4e-4 of rotation that was never there. Quaternion slerp,
+  which has no decomposition in the way, *is* exact at 0 and within a couple of
+  ulp at 1.
+- **`graphene_sphere_translate` never copies the radius.** It assigns the centre
+  and leaves the rest of the struct as it found it, so the moved sphere comes
+  back with whatever radius the allocator had lying there — 1.49e15 on one run
+  before caller-allocated buffers were zeroed, 0 afterwards, and `IsEmpty` then
+  says the sphere has vanished.
+- **`a.Multiply (b)` applies `a` first.** The documentation says "multiplies a
+  by b", which reads like the mathematical product *AB* and is the other way
+  round from what happens to a point. It only shows up where the operations do
+  not commute, which a scale and a translate do not.
+- **`Inset`, `Offset` and `Normalize` change the rectangle they are called on;
+  `InsetR`, `OffsetR` and `NormalizeR` do not.** graphene spells the in-place
+  operation without a suffix, which is the reverse of what a C# caller expects
+  from a method that returns a value: `var smaller = rect.Inset (1, 1);`
+  compiles, reads like a pure function, and shrinks the rectangle the caller
+  still holds.
+- **`graphene_rect_contains_point` is inclusive on all four edges**, so two
+  rectangles laid side by side both contain the point where they meet.
+  Hit-testing adjacent regions by asking each in turn has no unique answer on a
+  boundary; the order of the walk decides it. `graphene_box_contains_point` is
+  the same.
+- **A failed `Intersection` still fills its out parameter.** It is a zeroed
+  rectangle, not null, so the `bool` is the only thing separating "no overlap"
+  from "an empty rectangle at the origin" — and a caller who tests the result
+  for null concludes that everything intersects.
+- **`graphene_triangle_get_barycoords` hands back the *third* and *second*
+  weights.** `res.x` is the weight of **c** and `res.y` the weight of **b**,
+  with a's left implicit as `1 - x - y`. So vertex `a` comes back as `(0,0)`,
+  `b` as `(0,1)` and `c` as `(1,0)`, and code that reconstructs a point from
+  them swaps two corners with no error.
+- **`Euler.Alpha`, `Beta` and `Gamma` follow the rotation order, not x, y, z.**
+  They are the first, second and third rotations applied, in whatever order the
+  angle carries — for `Sxyz` they coincide with X, Y and Z, which is exactly why
+  reading alpha as "the x angle" survives testing, and for `Ryxz` alpha is the
+  *y* angle. They are also in radians while `X`, `Y` and `Z` are in degrees.
+- **`Matrix.IsIdentity` and `Quaternion.Equal` are exact comparisons**, so
+  neither is a question to ask about a value that has been through arithmetic. A
+  scale times its own inverse is the identity to the last bit under gvsbuild and
+  a few ulp away from it on Debian — same graphene, different compiler and
+  vector unit — so neither answer is a fact about the binding. `Near`, and for
+  quaternions the dot product, are the comparisons that mean something. The same
+  goes for how far `graphene_matrix_interpolate`'s recomposition lands from the
+  endpoint: 4.9e-3 under gvsbuild, 6.9e-3 under Debian's build.
+- **`GskTransform`'s category records how it was built, not what it does.**
+  Handing it a matrix that is a plain scale gives `Unknown`, so a renderer's
+  fast path for an affine transform is missed while the matrix itself reads
+  back element for element.
+- **A `GskTransform` chain applies its *last* operation to a point first**, the
+  way a CSS transform list does and the opposite of the order the calls are
+  written in.

@@ -67,10 +67,12 @@ namespace GtkSharp.Tests
         /// dialog the port broke fails here and not in a test that only happens
         /// to agree with it.
         /// </remarks>
-        [Theory]
+        [SkippableTheory]
         [MemberData(nameof(Sections))]
         public void Section_buttons_can_be_pressed_and_any_window_they_open_is_live(string typeName)
         {
+            Skip.If(TestEnvironment.SkipWebKitSectionNamed(typeName), TestEnvironment.WebKitSkipReason);
+
             var type = typeof(SectionAttribute).Assembly.GetType(typeName);
             Assert.NotNull(type);
 
