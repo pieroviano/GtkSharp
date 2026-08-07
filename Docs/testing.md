@@ -254,6 +254,21 @@ Anything touching Gtk must be inside `Run`.
 
 ## Things a test must not do
 
+**Never assert that a floating-point result is inexact.** Whether an operation
+comes out exact is a property of the vector unit and the compiler that built the
+native library, never of the binding. Two graphene tests asserted a round trip
+was *not* exact — reasonable-looking, since it is inexact under gvsbuild — and
+CI failed on both, because on the runner's hardware the same operations are
+exact. Assert the property that holds everywhere (the translation moves
+linearly; the dot product of two quaternions is 1) to a stated tolerance, and
+say in a comment why the tolerance is what it is.
+
+The same applies to `Marshal.SizeOf`, to the set of gdk-pixbuf loaders
+installed, and to anything else that describes the machine rather than the code.
+A test that pins the host will pass on the host it was written on and fail
+somewhere else, which costs more than the coverage it bought.
+
+
 Two sample buttons are skipped by name in `ChildWindowTests`, and **neither is a
 defect** — both are the sample behaving as designed:
 
