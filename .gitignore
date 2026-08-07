@@ -315,3 +315,4 @@ OpenCover/
 
 # macOS metadata
 .DS_Store
+/.vscode
