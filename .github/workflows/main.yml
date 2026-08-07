@@ -92,6 +92,24 @@ jobs:
       # sandbox can start. Note this is NOT the same thing as WebKit being
       # absent -- the library loads fine here, it just cannot sandbox itself --
       # which is why the switch is explicit rather than inferred.
+      #
+      # Explicit is not merely tidier here, it is the only thing that works.
+      # Inferring it was tried and is unsound: WebKit's first bwrap call is a
+      # capability check that this container passes, and the one that fails is
+      # a later, differently-shaped launch of xdg-dbus-proxy. A probe therefore
+      # reports "usable" and the host aborts anyway.
+      #
+      # Nor is loosening the container enough to earn the coverage back.
+      # Measured in debian:forky, on the same image, running only the section
+      # theory:
+      #
+      #   (default)                        -> aborts, 18 of 32
+      #   --security-opt seccomp=unconfined -> aborts, 18 of 32  (bwrap alone
+      #                                        works; WebKit still does not)
+      #   --privileged                      -> 32 of 32
+      #
+      # Only --privileged buys it, which is a far wider grant than this job --
+      # holding packages:write -- should have. Hence the skip.
       - name: Run tests headless
         run: dbus-run-session -- xvfb-run -a dotnet cake build.cake --BuildTarget=Test
         env:
