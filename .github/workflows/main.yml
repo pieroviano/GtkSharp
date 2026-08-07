@@ -79,13 +79,19 @@ jobs:
       # create. When it cannot, it does not fail the call -- it aborts the
       # process ("bwrap: Creating new namespace failed", then "Failed to fully
       # launch dbus-proxy"), and the run ends mid-suite with a truncated total
-      # under a "Passed!" line: 135 of 766, in the container this was verified
-      # in. Disabling the sandbox is what makes the WebKit-backed sample section
-      # survivable.
+      # under a "Passed!" line.
+      #
+      # WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS was set here to get past that
+      # and has been removed deliberately. This job holds a GITHUB_TOKEN with
+      # packages:write, and turning the sandbox off would have meant rendering
+      # documents in that job with no isolation. The sample no longer fetches a
+      # remote page -- WebviewSection navigates to a file:// URI it writes
+      # itself -- so there is no untrusted content here to need the escape.
+      #
+      # If bwrap still cannot start in a future runner image, skip the
+      # WebKit-backed sections rather than restoring the flag.
       - name: Run tests headless
         run: dbus-run-session -- xvfb-run -a dotnet cake build.cake --BuildTarget=Test
-        env:
-          WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS: 1
 
       - uses: actions/upload-artifact@v4
         with:
