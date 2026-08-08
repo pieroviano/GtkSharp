@@ -2979,3 +2979,128 @@ delegate, compared against the fixture's Gtk thread and against the worker that
 called `WakeupMain`. A delegate that ran on the wrong thread — which is the only
 failure that matters for a class whose entire purpose is thread affinity — would
 satisfy any test that merely counted invocations.
+
+## Behaviour worth knowing: what `await` does in a Gtk application
+
+`AsyncContextTests` covers `GLib.GLibSynchronizationContext`, which had no
+coverage at all despite being what makes `await` usable in a Gtk application.
+`Application.Init` installs it on the thread that called it, so an `await` in an
+event handler captures it and resumes on the Gtk thread — which is the only
+reason the code after an `await` may touch a widget.
+
+Nothing here asserts that a continuation *ran*. That is not the question: a
+continuation that resumed on a thread-pool thread satisfies any test that waits
+for a flag, and then corrupts Gtk from a thread that never called `gtk_init`. The
+question is **where**, so every test compares `ManagedThreadId`, and every
+positive is paired with the arrangement that must not come back:
+
+| | resumes on |
+|:--|:--|
+| `await task` | the Gtk thread |
+| `await task.ConfigureAwait(false)` | wherever the task completed |
+| `await task` with the context removed | wherever the task completed |
+| `await Task.CompletedTask` | inline, without the loop turning |
+
+The last is worth knowing on its own: an already-completed task takes the
+awaiter's synchronous path, so code after that `await` runs without a single turn
+of the main loop.
+
+`ConfigureAwait(false)` is the trap that bites hardest, because it is what a
+library author is told to write. Anything after it must not touch a widget, and
+the failure is timing-dependent rather than deterministic.
+
+**Send deadlocks if you call it from the Gtk thread**, and that is deliberately
+not tested: `Send` posts an idle and blocks until it runs, so calling it from the
+thread that would have to dispatch that idle waits forever. A test for it would
+hang the fixture rather than fail, and hanging is the one outcome this suite
+cannot report — see the truncated-total failure mode this document keeps
+returning to. `Send` is for worker threads; the Gtk thread should call the code
+directly, or `Post`.
+
+**Where else to look:** anything that captures `SynchronizationContext.Current`
+and replays it later. The context is installed per *thread* by `Init`, not
+process-wide, so a helper that marshals work by capturing the current context on
+whatever thread happens to construct it will silently do nothing useful.
+
+## Fixed: `StringList.Splice` deleted rows the caller never asked it to
+
+Found while writing `ListViewTests` over the half of the list pipeline nothing
+covered — `ListView`, `MultiSelection`, `NoSelection`, `ListItem` and `Bitset` had
+no mention in the suite at all, and `ListView` is the widget
+`getting-started.md` tells people to use instead of `TreeView`.
+
+The C function is
+
+```c
+void gtk_string_list_splice (GtkStringList *self, guint position,
+                             guint n_removals, const char * const *additions);
+```
+
+and the api.xml records all three parameters correctly. What came out was
+
+```csharp
+public void Splice(uint position, string[] additions)     // n_removals is gone
+```
+
+with `additions.Length` passed as `n_removals`. So `list.Splice(1, new[] {"a","b"})`
+— which reads as an insertion — removed two rows and added two, and there was no
+way to express a pure insertion at all. Silent, and destructive.
+
+**The cause is a name heuristic with no cross-check.** `Parameter.IsCount` is true
+for *any* integer parameter whose name starts with `n_`, and `Parameters` then
+pairs it with the next parameter if that one `IsArray`. `n_removals` starts with
+`n_`; `additions` is an array; the two got married. But `additions` is
+NULL-terminated — it carries its own length and has no count parameter to pair
+with. `IsArray` was true for both kinds, so the distinction did not exist.
+
+`Parameter.NeedsCount` now makes it: `array` **and not** `null_term_array`. Fixed
+in the generator rather than the metadata, because the misjudgement will recur on
+the next API of this shape.
+
+**How the blast radius was measured**, which matters more than the fix: a
+generator change rewrites every assembly, so the check is to diff the generated
+public surface, not to run the tests and see green.
+
+```sh
+find Source/Libs -path "*/Generated/*" -name "*.cs" -print0 \
+  | xargs -0 grep -hE "^[[:space:]]+public .*\(.*\)" | sed 's/^[[:space:]]*//' | sort > after.txt
+# stash the change, dotnet cake --BuildTarget=Prepare, repeat into before.txt
+diff before.txt after.txt
+```
+
+7844 signatures, one line changed. Do this for any `GapiCodegen` edit — the suite
+passing says nothing about the 7843 signatures no test mentions.
+
+A second bug fell out of the same block: `if (next != null || next.Name == "parameter")`
+dereferences `next` in exactly the case the null check was guarding. `||` for
+`&&`, and it also meant a comment inside `<parameters>` would crash codegen.
+
+## Fixed: a second `<constant>` casualty, and what the first one should have taught
+
+`GTK_INVALID_LIST_POSITION` is what `SingleSelection.Selected` holds when nothing
+is selected and what `StringList.Find` answers when the string is not there. Like
+`GTK_STYLE_PROVIDER_PRIORITY_*` before it, it is a `<constant>` in the gir, so it
+did not exist in the binding and the only way to ask "is anything selected" was
+to compare against `uint.MaxValue` and hope that is what it means. Now
+`Gtk.Global.InvalidListPosition`.
+
+That is two of the 98 found by accident, each while writing a test for something
+else. The rest are still missing, and the way to find them is not to wait for the
+next accident — see the earlier section.
+
+## Behaviour worth knowing: a single selection takes two flags to empty
+
+I expected `CanUnselect = true` to be enough to clear a `SingleSelection`, and it
+is not. There are two independent guards, both defaulting to the value that keeps
+a row selected:
+
+| | |
+|:--|:--|
+| `CanUnselect` (false) | refuses the unselect outright |
+| `Autoselect` (true) | allows it, then immediately picks a row again |
+
+So clearing a selection needs `CanUnselect = true` **and** `Autoselect = false`.
+This is why a `ListView` always has a row highlighted, and why turning off only
+the flag whose name mentions unselecting appears to do nothing at all. The test
+asserts the state after each of the three steps, so the one that works is
+distinguishable from the two that quietly do not.
