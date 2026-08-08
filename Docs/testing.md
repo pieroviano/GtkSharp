@@ -3456,3 +3456,47 @@ with no per cent sign. `"100% complete"` is an ordinary thing to log.
 the right number of parameters and the wrong types is still wrong, and
 `IntPtr`-for-everything hides most of it. The counts are the cheap half; the
 types need reading.
+
+## The type half of the delegate audit
+
+The arity audit compared parameter *counts*, and its own closing note was that
+types need reading. That is also mechanizable, up to a point: compare each
+parameter's gir type against the C# spelling and flag the pairs that cannot
+carry each other. Pointers marshalled as `IntPtr` and enums are out of scope —
+everything else is a width or a kind.
+
+**Five disagreements, three of them noise, two worth fixing.**
+
+The noise is signedness at the same width: `guint` declared `int` in
+`g_closure_new_simple` and `g_object_newv`. A closure size and a parameter count
+do not reach 2^31, and both halves of the register are the same size.
+
+The two that matter are `g_signal_handler_disconnect` and
+`g_signal_handler_is_connected`, whose handler id is a **`gulong`** — 64 bits on
+Linux and macOS, 32 on Windows — declared `uint`:
+
+```csharp
+delegate void d_g_signal_handler_disconnect(IntPtr instance, uint handler);
+```
+
+`SymbolTable.cs` has mapped `gulong` to `LPUGen`, which marshals as `UIntPtr`,
+since the mono era. Every *generated* wrapper gets that right; this hand-written
+file never followed.
+
+**Nothing observable was wrong, and no test here proves otherwise.** Handler ids
+are small sequential counters, so the value has always fitted in 32 bits, and on
+x86-64 a 32-bit move zero-extends. The fix is for the declared ABI, and it is
+worth being plain about that rather than dressing it up: `SignalLifetimeTests`
+pins the behaviour the change had to *preserve* — several handlers on one signal,
+removing one of them, removing one twice, connection order, a hundred
+connect/disconnect cycles — not the truncation, which cannot be reached.
+
+That is a legitimate reason to write tests. A change with no observable effect
+still needs to be shown to have no observable effect.
+
+**Where the audit still cannot help:** it only sees parameters whose gir type is
+a named scalar. Callback parameters, arrays, unions and anything the gir marks as
+a pointer are skipped, and those are where the last two crashes actually lived
+(`g_ptr_array_copy`'s missing `GCopyFunc`, `g_logv`'s missing `va_list`). Arity
+caught both. Types catch what arity cannot. Neither catches a parameter that is
+the right size and the wrong meaning.
