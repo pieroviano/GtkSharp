@@ -3218,3 +3218,241 @@ checkable:
 ```sh
 python -c "import glob,xml.dom.minidom as m; [m.parse(f) for f in glob.glob('Source/Libs/*/*.metadata')]"
 ```
+
+## Fixed: every `Cairo.Glyph` in a run hashed to the same value
+
+`CairoTextTests` covers Cairo's text and glyph API. `CairoSharp` has no
+`.metadata` and nothing generated — every line is hand-written, so nothing about
+it is checked by compiling — and `FontFace`, `Glyph` and `ShowGlyphs` had no
+mention in the suite at all.
+
+`Glyph.GetHashCode` was
+
+```csharp
+return (int) Index ^ (int) X ^ (int) Y;
+```
+
+wrong twice over. XOR is commutative, so every permutation of the same three
+numbers shared one hash: `(1,2,3)`, `(3,2,1)` and `(2,1,3)` all came out as
+**zero**. A glyph run is mostly permutations of small numbers, so that is the
+ordinary case rather than a rare one. And the casts threw away the fractional
+part of `X` and `Y` — which is exactly what sub-pixel glyph positioning puts
+there, so every glyph between two whole numbers hashed alike too.
+
+This is the same defect, with the same reasoning, that `StructBase.GenHashCode`
+in `GapiCodegen` was already fixed for. The generated structs got the fix; the
+hand-written one beside them did not, because nobody was looking at it. That is
+the second time in two sweeps — `AttrList.Attributes` kept the bug its own
+neighbour was hand-written to avoid.
+
+**Where else to look:** `grep` the hand-written tree for `GetHashCode` bodies
+containing `^` without a multiply. A commutative fold is only visible as a bug
+when something hashes a struct whose fields are permutations of each other, which
+is rare enough to survive for years and common enough to matter when it bites.
+
+## Behaviour worth knowing: testing glyph drawing without assuming a font
+
+Glyph indices are a property of the font file, so no particular number can be
+assumed on a machine whose fonts the test did not choose. Scanning for one with
+non-empty extents makes the test independent of what `"sans"` resolves to:
+
+```csharp
+for (long index = 1; index < 300; index++)
+    if (cr.GlyphExtents(new[] { new Cairo.Glyph(index, 0, 0) }).Width > 0)
+        return index;
+throw new InvalidOperationException("no drawable glyph found");
+```
+
+It fails loudly rather than quietly drawing nothing, which is the difference
+between this and hard-coding an index that happens to work here.
+
+With one such index in hand, the oracles are positional rather than absolute: the
+same glyph at `x=2` and `x=40` must leave ink at different places, and three
+glyphs must reach further right than one. Between them those pin the hand-written
+`Glyph[]` copy into unmanaged memory — index, x and y all surviving it, and the
+whole array arriving rather than only its first element, which is the failure
+this repository has hit repeatedly elsewhere.
+
+## Fixed: five defects in the list marshalling every binding call goes through
+
+`GLibListTests` covers `GLib.List`, `GLib.SList` and the `ListBase` beneath
+them — 290 hand-written lines that nothing in the suite referenced by name, and
+the machinery both of this sweep's earlier defects actually lived in. Writing
+sixteen tests against it found five more.
+
+**`Clone` dropped the element type, and cloning a list of strings crashed the
+process.** It was
+
+```csharp
+public override object Clone () => new List (g_list_copy (Handle));
+```
+
+with no element type, so every element of the clone went through `DataMarshal`'s
+last resort — "is this pointer a GObject?" — which dereferences it as a
+`GTypeInstance`. For a list of strings that reads a `char*` as an object header:
+an access violation that took the test host down, not an exception. Now carries
+`element_type` across, `owned: true` (the spine is a copy) and
+`elements_owned: false` (`g_list_copy` is shallow).
+
+**`Count` was cached and never invalidated by a mutation.** `length` was dropped
+only when the list was emptied, so
+
+```csharp
+int before = list.Count;   // walks the chain, caches the answer
+list.Append (item);
+int after = list.Count;    // still the old number
+```
+
+and because LINQ preallocates from `ICollection.Count`, a single `Cast<T>()` was
+enough to leave a list lying about its length for the rest of its life.
+`Append`/`Prepend` now drop the cache.
+
+**The enumerator restarted once it had finished.** `current == IntPtr.Zero` meant
+both "not started" and "ran off the end", so `MoveNext` sent it back to the head
+and answered `true` forever — a loop that kept asking never terminated. Split
+with a `finished` flag that `Reset` clears.
+
+**`SyncRoot` returned null**, so the documented `lock (collection.SyncRoot)` was
+a `NullReferenceException`.
+
+**`Prepend` took only an `IntPtr`** while `Append` had taken a `string` and an
+`object` since the mono era, so building a list front-to-back meant marshalling
+every element by hand. Two overloads added, the `Append` ones with the direction
+changed.
+
+**Where else to look:** `Source/Libs/GLibSharp/PtrArray.cs` has the same
+`DataMarshal` fallthrough at line 193 and was not part of this pass.
+
+## Behaviour worth knowing: `Append(object)` is not `Append(IntPtr)`
+
+`AllocNativeElement` copies a value type into fresh native memory and stores
+*that* address. For a struct that is right; for an `IntPtr` it means the list
+holds a pointer to a copy of your pointer. Two of these tests were written
+against the wrong one and read back addresses nobody recognised.
+
+Use `Append(IntPtr)` when the element *is* the pointer.
+
+## And the crash that made the point again
+
+The first draft of the element-type test built a list holding `new IntPtr(0x1234)`
+and read it back with no element type — which asks GLib whether address `0x1234`
+is a GObject, and GLib reads through it. Access violation, test host gone,
+`Total` down by the rest of the class.
+
+A fabricated pointer is only safe in a list whose element type stops anything
+dereferencing it. Where the point of the test *is* the dereferencing path, use
+`IntPtr.Zero`: it exercises the same branch and is the one address that is
+defined to be safe.
+
+## Fixed: `PtrArray.Clone` called an arbitrary address as a function
+
+The `ListBase` pass ended by recording `PtrArray` as unexamined — same
+`DataMarshal`, same `ICollection` surface, same enumerator shape, written
+separately. `GLibContainerTests` is that examination. It shares two of the five
+defects found there, and has a worse one of its own.
+
+```csharp
+delegate IntPtr d_g_ptr_array_copy(IntPtr raw);              // one parameter
+```
+
+The C function has taken three since GLib 2.62:
+
+```c
+GPtrArray *g_ptr_array_copy (GPtrArray *array, GCopyFunc func, gpointer user_data);
+```
+
+So `Clone` left `func` and `user_data` as whatever happened to be in the argument
+registers — and a non-NULL `func` is **called**, once per element. This did not
+return a wrong answer or throw; it jumped to an arbitrary address. The test host
+died with `FailFast` and no managed stack.
+
+Now declared with all three, passing NULL for a shallow copy, and the result is
+marked owned — `g_ptr_array_copy` is transfer full, so the old
+`owned: false` leaked every clone as well.
+
+**The other two are the ones `ListBase` had**, in independently written code:
+`SyncRoot` returned null, and the enumerator restarted after finishing because
+`current = -1` means both "not started" and "ran off the end".
+
+**Where else to look:** every `d_g_*` delegate in the hand-written tree is a
+signature nobody checks. `grep` for delegates whose parameter count differs from
+the gir's, starting with anything added after GLib 2.50 — the older calls have
+had decades of use, these have not. A wrong *type* usually misbehaves; a missing
+**callback** parameter executes data.
+
+## Behaviour worth knowing: the total is the crash detector
+
+Two crashes in two sweeps, and both announced themselves the same way — not as a
+failure, but as a **smaller `Total`**:
+
+```
+Failed:     2, Passed:     7, Total:     9      <- fourteen tests were written
+```
+
+Nine ran. Five never got the chance, because the host was gone. Had the two
+failures not been there, the line would have read `Passed! ... Total: 9` and
+looked like a clean run of a smaller class.
+
+The habit that catches it is counting the tests you wrote and comparing. When the
+total is short, bisect by filter — the crash here was one test, and running the
+six `PtrArray` tests one at a time named it in under a minute:
+
+```sh
+for t in <names>; do dotnet test --filter "FullyQualifiedName~$t"; done
+```
+
+Then read the *class* boundary too: `Argv` passing 5/5 in isolation while the
+combined run died proved the fault was not in the half that looked suspicious.
+
+## The delegate-arity audit, and the one real defect it found
+
+The `PtrArray` pass ended by saying every `d_g_*` delegate in the hand-written
+tree is a signature nobody checks. That audit is mechanical, so it was worth
+writing rather than describing: extract every `delegate ... d_<c_name>(...)` from
+the non-generated sources, look `<c_name>` up in the girs, and compare the
+parameter count (instance parameter included, `throws` adding one).
+
+**706 delegates checked, five mismatches, one real.**
+
+The four false positives are all variadic C functions where the extra managed
+parameter is the argument behind the format — `gdk_pixbuf_save`,
+`gdk_pixbuf_save_to_stream`, `gtk_message_dialog_new` and its markup twin. An
+arity-only audit cannot know that, so the script reports and a human reads.
+
+The real one was `g_logv`:
+
+```c
+void g_logv (const gchar *domain, GLogLevelFlags level,
+             const gchar *format, va_list args);      /* four */
+```
+
+```csharp
+delegate void d_g_logv(IntPtr log_domain, LogLevelFlags flags, IntPtr message);  // three
+```
+
+Two faults at once. The `va_list` was never passed, so GLib read the argument
+list out of whatever was in the register; and the already-composed message was
+handed over as the **format**, so any per cent sign in it became a conversion
+consuming from that garbage list. `Log.WriteLog(domain, level, "100% complete")`
+was undefined behaviour and `"%s"` was a wild pointer dereference. The test host
+died with a `FailFast` and no managed stack.
+
+Now `g_log` with a literal `"%s"` and the message as the argument behind it.
+
+**The instructive part is the sibling that was fine.** `MessageDialog` passes a
+composed message into the same kind of parameter, and was *safe*, because it
+composed through `Marshaller.StringFormat`, which doubles every per cent sign so
+printf renders one. Two wrappers, the same hazard, opposite outcomes — and the
+protection was three files away from the code that needed it.
+
+`MessageDialog` now passes `"%s"` too, which meant **removing** the escaping:
+doubling and then not un-doubling gave "100%% complete". Passing text as data is
+the more robust arrangement, but the two mechanisms must not be half-applied.
+
+**Why no test caught either:** every existing test of these APIs used a message
+with no per cent sign. `"100% complete"` is an ordinary thing to log.
+
+**Where else to look:** the audit script only compares *counts*. A delegate with
+the right number of parameters and the wrong types is still wrong, and
+`IntPtr`-for-everything hides most of it. The counts are the cheap half; the
+types need reading.
