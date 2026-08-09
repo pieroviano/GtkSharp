@@ -1,6 +1,6 @@
 # Coverage of the hand-written code
 
-Measured at **1695 tests** (1659 passing, 36 skipped) on Windows, `Release`,
+Measured at **1724 tests** (1688 passing, 36 skipped) on Windows, `Release`,
 with generated code excluded by the collector.
 
 > **Every line count below is half what it was**, and no rate moved. Cobertura
@@ -38,7 +38,7 @@ which skips propagation entirely, and it passed throughout.
 
 | | covered / total | rate |
 |:--|--:|--:|
-| **hand-written** | **7 453 / 11 032** | **67.6%** |
+| **hand-written** | **7 498 / 11 032** | **68.0%** |
 | generated, still reported | 595 / 641 | 92.8% |
 
 **The generated code is now excluded by the collector itself**, so these are the
@@ -67,12 +67,12 @@ is. A rate on its own hides how much code is behind it.
 
 | assembly | covered / total | rate | uncovered |
 |:--|--:|--:|--:|
-| `GLibSharp` | 3 599 / 4 795 | 75.1% | **1 196** |
-| `GtkSharp` | 1 246 / 2 156 | 57.8% | **910** |
+| `GLibSharp` | 3 606 / 4 795 | 75.2% | **1 189** |
+| `GtkSharp` | 1 250 / 2 156 | 58.0% | **906** |
 | `Shared` | 529 / 1 008 | 52.5% | **479** |
 | `CairoSharp` | 1 121 / 1 568 | 71.5% | **447** |
-| `GdkSharp` | 244 / 443 | 55.1% | 199 |
-| `PangoSharp` | 336 / 520 | 64.6% | 184 |
+| `GdkSharp` | 262 / 443 | 59.1% | 181 |
+| `PangoSharp` | 352 / 520 | 67.7% | 168 |
 | `GioSharp` | 140 / 229 | 61.1% | 89 |
 | `GskSharp` | 165 / 205 | 80.5% | 40 |
 | `JavaScriptCoreSharp` | 1 / 26 | *n/a* | 25 |
@@ -106,7 +106,7 @@ It is the only lens that shows their tests at all.
 
 ---
 
-## What 67.6% does not mean
+## What 68.0% does not mean
 
 About **a fifth of the uncovered lines cannot be covered by this suite at all**,
 and reading the number without that is how a coverage target turns into busywork.
@@ -150,7 +150,7 @@ by design.
 `GLibSharp.Source*Native.cs` files (33 each) are mostly field declarations and
 native callback shims that exist to describe a layout, not to be called.
 
-**Adjusted, the reachable hand-written rate is about 71%**: 6 924 of 9 712
+**Adjusted, the reachable hand-written rate is about 72%**: 6 969 of 9 712
 lines. That is the number worth moving.
 
 The adjustment removes each category from *both* sides — `Shared` (529 / 1 008
@@ -225,7 +225,7 @@ part that still matters — implementing a model from C#.
 
 ## Files with no coverage at all
 
-66 files, 587 lines. Ordered by size; the triage above accounts for the top of
+62 files, 541 lines. Ordered by size; the triage above accounts for the top of
 the list.
 
 | file | lines | |
@@ -236,23 +236,46 @@ the list.
 | `GtkSharp/HandlerNotFoundException.cs` | 32 | dead |
 | `CairoSharp/XlibSurface.cs` | 26 | X11 only |
 | `JavaScriptCoreSharp/Value.cs` | 25 | tested, but **not on Windows** — see below |
-| `GdkSharp/PixbufAnimation.cs` | 20 | **worth testing** |
 | `GLibSharp/Cond.cs` | 19 | ABI declaration |
 | `GLibSharp/Mutex.cs` | 16 | ABI declaration |
 | `GLibSharp/PollFD.cs` | 16 | ABI declaration, layout audited |
 | `GLibSharp/RecMutex.cs` | 16 | ABI declaration |
 | `GtkSharp/BindingAttribute.cs` | 11 | reached indirectly by `BuilderBindingTests` |
 | `GtkSharp/IconView.cs` | 10 | deprecated |
-| `PangoSharp/Analysis.cs` | 10 | **worth testing** |
 | `CairoSharp/XcbSurface.cs` | 9 | XCB only |
 | `GdkSharp/DisplayManager.cs` | 9 | needs a display server |
 | `GtkSharp/NodeCellDataFunc.cs` | 9 | deprecated tree layer |
-| `GLibSharp/Markup.cs` | 8 | **worth testing** |
-| `GtkSharp/ComboBoxText.cs` | 8 | **worth testing** |
+| `CairoSharp/Distance.cs` | 7 | ABI declaration |
+| `CairoSharp/Point.cs` | 7 | ABI declaration |
+| `GLibSharp/MarkupParser.cs` | 7 | ABI declaration, layout audited |
+| `GLibSharp/SourceCallbackFuncs.cs` | 7 | ABI declaration; see `testing.md` |
+| `GLibSharp/SourceFuncs.cs` | 7 | ABI declaration; see `testing.md` |
 
-Four files left this table by being tested rather than by being reclassified:
-`GtkSharp/CssProvider.cs` and `GtkSharp/PaperSize.cs` are now fully covered,
-`GtkSharp/Image.cs` reads 22 / 23 and `GLibSharp/FileUtils.cs` 8 / 11.
+**Nothing in this table is marked "worth testing" any more.** Eight files have
+left it by being tested rather than reclassified:
+
+| file | now | by |
+|:--|--:|:--|
+| `GtkSharp/CssProvider.cs` | 11 / 11 | `CssProviderTests` |
+| `GtkSharp/PaperSize.cs` | 7 / 7 | `ImageAndPaperSizeTests` |
+| `GtkSharp/Image.cs` | 22 / 23 | `ImageAndPaperSizeTests` |
+| `GdkSharp/PixbufAnimation.cs` | 16 / 20 | `PixbufAnimationTests` |
+| `GLibSharp/FileUtils.cs` | 8 / 11 | `FileUtilsTests` |
+| `PangoSharp/Analysis.cs` | 8 / 10 | `ComboBoxTextAndAnalysisTests` |
+| `GLibSharp/Markup.cs` | 7 / 8 | `MarkupEscapeTests` |
+| `GtkSharp/ComboBoxText.cs` | 4 / 8 | `ComboBoxTextAndAnalysisTests` |
+
+Two of those eight found a defect rather than merely covering code —
+`PaperSize`'s named sizes handed out a shared instance the caller could dispose,
+and reaching `Pango.Analysis` at all required fixing `Pango.Global.Itemize`,
+which returned an untyped `GLib.List` that took the process down when iterated.
+Both are written up in [testing.md](testing.md). That is the argument for
+picking targets from this table rather than from the percentage: **the files
+nothing has ever called are where the untested assumptions are.**
+
+What remains is genuinely residual. Of the 541 lines, 119 are dead, 133 are ABI
+declarations, 35 are X11-only, and 25 are tested but skipped on this platform —
+so the reachable, untested remainder across all 62 files is small and scattered.
 
 `JavaScriptCoreSharp/Value.cs` is the row to read twice. It has tests —
 `JavaScriptCoreTests` covers `FunctionCall`, `ConstructorCall` and

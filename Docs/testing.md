@@ -4522,7 +4522,7 @@ uncalled.
 **Run the audit after touching any hand-written struct.** It takes seconds:
 
 ```sh
-python scratchpad/audit_structs.py   # field counts only
+python Source/Tools/Audits/audit_structs.py   # field counts only
 ```
 
 Counts are the cheap half. A count that matches can still have the wrong types,
@@ -4675,3 +4675,118 @@ back as `184.14999` mm. Rounded to one decimal place that is `184.1`, while the
 published `184.15` rounds to `184.2` — so the two identical papers compare
 *unequal* at one decimal and equal at zero. **A rounded comparison has a cliff
 inside it**; a tolerance does not.
+
+## Fixed: two bindings of the same C function, one of which crashed
+
+`pango_itemize` and `pango_itemize_with_base_dir` are the same function with one
+extra argument. Both return a `GList*` of `PangoItem*`. Both had the same
+`api.xml` entry:
+
+```xml
+<return-type type="GList*" owned="true" />
+```
+
+Neither records an element type — the `.gir` does not carry one — so it has to
+come from the metadata. Only one of them had it:
+
+```xml
+<attr path="…method[@name='ItemizeWithBaseDir']/return-type" name="element_type">PangoItem*</attr>
+```
+
+So the two siblings were bound completely differently:
+
+| | binding | reading it |
+|:--|:--|:--|
+| `ItemizeWithBaseDir` | `Pango.Item[]` | works |
+| `Itemize` | `GLib.List`, no element type | **access violation** |
+
+`GLib.ListBase.DataMarshal` falls back to `GLib.Object.IsObject` when it has no
+element type, and a `PangoItem` is a boxed type, not a GObject. Dereferencing one
+as a `GObject` takes the process down: `0xC0000005`, host gone, no managed
+exception. **`Pango.Global.Itemize` could not be called at all** — not "returned
+something odd", could not be called — and nothing said so, because nothing had
+ever called it.
+
+The fix is three lines of metadata giving `Itemize` what its sibling already had.
+It changes the return type from `GLib.List` to `Pango.Item[]`, which is a
+breaking change in the sense that matters least: from crashing to working.
+
+### The general shape
+
+**A `GList*` or `GSList*` return with no `element_type` is a latent crash, not a
+cosmetic gap.** This is the third instance in this tree — `pango_attr_list_get_attributes`
+and `Pango.AttrIterator.Attrs` were the first two, both written up above. The
+symptom differs by what the elements actually are: a boxed type crashes, a
+non-GObject pointer comes back as `null`.
+
+They are findable mechanically. Every `new GLib.List (raw_ret)` or
+`new GLib.SList (raw_ret)` in `Generated/` with a single argument is one:
+
+```sh
+grep -rn "new GLib\.S\?List(raw_ret)" Source/Libs/*/Generated/
+```
+
+The single-argument constructor is the whole tell — the safe form always passes a
+type.
+
+### The backlog this found, and what is still open
+
+**32 sites match, and 11 of them hold elements that are not GObjects.** Those 11
+have exactly the `pango_itemize` fault and are listed here rather than fixed,
+because several need a decision beyond adding metadata. This is a *known open
+item*, not a solved one.
+
+| binding | elements | why it is not a one-liner |
+|:--|:--|:--|
+| `g_io_extension_point_get_extensions` | `GIOExtension` (record) | metadata only |
+| `g_resolver_lookup_records` (+ `_finish`) | `GVariant` | metadata only |
+| `g_dtls_client_connection_get_accepted_cas` | `GByteArray` | element type is barely bound |
+| `webkit_cookie_manager_get_all_cookies_finish` (+ `_cookies_finish`) | `Soup.Cookie` | **libsoup is not bound in this tree** |
+| `webkit_itp_third_party_get_first_parties` | `WebKitITPFirstParty` | metadata only |
+| `webkit_network_session_get_itp_summary_finish` | `WebKitITPThirdParty` | metadata only |
+| `webkit_website_data_manager_fetch_finish` | `WebKitWebsiteData` | metadata only |
+| `webkit_website_data_manager_get_itp_summary_finish` | `WebKitITPThirdParty` | metadata only |
+
+The two `Soup.Cookie` ones are the awkward pair: there is no `Soup` binding here,
+so there is no element type to name. Those want *hiding* rather than typing —
+a method that cannot return anything readable is worse than a method that is not
+there.
+
+The other 21 sites hold GObjects or interfaces on one, so `IsObject` does the
+right thing and they iterate safely. They are still untyped, which means callers
+get `object` and cast — untidy, not dangerous.
+
+The classifier is in `Source/Tools/Audits/audit_lists.py`: it reads each site's C function
+out of the generated source, looks the return element up in the `.gir`, and
+splits on whether that element is a `<class>`/`<interface>` or a `<record>`.
+**Re-run it after any `RegenerateApi`.**
+
+### Two tests, because one would not have caught it
+
+An untyped list cannot be asserted against — reading one element ends the
+process — so the regression test pins the *shape* of the return and the
+*agreement* between the two siblings:
+
+```csharp
+Assert.Equal (11, items.Sum (i => i.Length));          // the runs cover the text
+Assert.Equal (plain.Select (i => i.Offset),
+              directed.Select (i => i.Offset));        // and the siblings agree
+```
+
+The second is the one that stops this recurring. The two functions drifted apart
+for years because nothing compared them; now something does.
+
+## Behaviour worth knowing: what Pango puts in `Analysis.ExtraAttrs`
+
+Reaching `ExtraAttrs` with a populated list is the only way to test the GSList
+walk inside it, and the obvious attributes to use do not work.
+
+**Pango folds anything that affects font selection into `analysis.font`** —
+weight, style, family, size — and carries only the rest as extra. A test written
+with `AttrWeight (Bold)` and `AttrStyle (Italic)` gets an empty array back and
+looks exactly like a broken accessor.
+
+`AttrUnderline` and `AttrStrikethrough` do not affect which font is chosen, so
+they arrive in `ExtraAttrs`. The empty case is worth keeping alongside as its own
+test, because an implementation returning `null` for an empty GSList fails
+differently from one returning a wrong length.
