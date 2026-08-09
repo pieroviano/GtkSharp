@@ -63,4 +63,10 @@
 		<FileVersion>4.22.4.0</FileVersion>
 		<InformationalVersion>$(_GtkSharpPackageVersion)</InformationalVersion>
 	</PropertyGroup>
+	<PropertyGroup>
+		<PackageProjectUrl>https://github.com/pieroviano/GtkSharp</PackageProjectUrl>
+		<RepositoryUrl>https://github.com/pieroviano/GtkSharp</RepositoryUrl>
+		<IncludeSymbols>true</IncludeSymbols>
+		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
+	</PropertyGroup>
 </Project>
