@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-GtkSharp is a C# wrapper for Gtk 4.22 and its companion libraries (glib, gio, cairo, pango, graphene, gdk, gsk, libadwaita, gtksourceview, webkitgtk). It is a hard fork of mono/gtk-sharp, targeting `net10.0` + `netstandard2.0` and requiring **no glue libraries** — all native calls go through runtime symbol lookup rather than `DllImport` of a fixed library name.
+GtkSharp is a C# wrapper for Gtk 4.22 and its companion libraries (glib, gio, cairo, pango, graphene, gdk, gsk, libadwaita, gtksourceview, webkitgtk). It is a hard fork of mono/gtk-sharp, targeting `netstandard2.0` and requiring **no glue libraries** — all native calls go through runtime symbol lookup rather than `DllImport` of a fixed library name.
 
 There is no separate Atk binding: Gtk 4 folded accessibility into Gtk itself as `GtkAccessible`.
 
@@ -113,6 +113,8 @@ Supporting a new native library requires adding the enum value plus its per-plat
 
 ## Build conventions
 
-`Source/Libs/Directory.Build.props` applies to every wrapper: `net10.0;netstandard2.0`, `LangVersion 9`, `AllowUnsafeBlocks`, output redirected to `BuildOutput/$(Configuration)`, and **strong-name signing with `Source/Libs/GtkSharp.snk`** (required by `Microsoft.DotNet.SharedFramework.Sdk` for the workload ref pack). Keep new code within C# 9 and both target frameworks.
+`Source/Libs/Directory.Build.props` applies to every wrapper: `$(_GtkSharpLibTfm)` — `netstandard2.0`, defined in `Source/Directory.Build.props` — `LangVersion 9`, `AllowUnsafeBlocks`, output redirected to `BuildOutput/$(Configuration)`, and **strong-name signing with `Source/Libs/GtkSharp.snk`** (required by `Microsoft.DotNet.SharedFramework.Sdk` for the workload ref pack). Keep new code within C# 9 and `netstandard2.0`.
+
+**The wrappers build for `netstandard2.0` only.** They are P/Invoke over Gtk and use nothing outside it, so one build serves .NET 10, .NET Framework 4.x and Mono; `net10.0` is the framework of the *consumers* — the tests, the samples, the templates, and the `net10.0-gtk4.22` workload TFM (`$(_GtkSharpNetVersion)`), not of the bindings themselves. `GtkSharp.Ref` and `GtkSharp.Runtime` harvest `BuildOutput/$(Configuration)/$(_GtkSharpLibTfm)` and ship those same assemblies under `ref/`&`lib/net10.0-gtk4.22`. That output directory is shared with anything else built for the same framework (the template projects land there too), which is why the two packs name the wrapper assemblies off their `ProjectReference` list rather than globbing `*.dll`.
 
 `Source/Libs/GtkSharp/GtkSharp.targets` ships in the GtkSharp NuGet package and, on Windows, downloads and unzips a gvsbuild Gtk 4 runtime into `%LOCALAPPDATA%\Gtk\4.22.4` before build unless `SkipGtkInstall=True`. This runs for consumers of the package, including the Samples project. The bundle is a full install tree rather than a flat zip, so the DLLs land in `bin/` and carry no `lib` prefix (`gtk-4-1.dll`); `GLibrary`'s `SetDllDirectory` must stay in step with `GtkDir`.
