@@ -242,7 +242,7 @@ Task("PackageTemplates")
     DotNetPack("Source/Templates/GtkSharp.Template.VBNet/GtkSharp.Template.VBNet.csproj", settings);
 });
 
-const string manifestName = "Net4x.GtkSharp.NET.Sdk.Gtk";
+const string manifestName = "GtkSharp4.NET.Sdk.Gtk";
 var manifestPack = $"{manifestName}.Manifest-{TargetEnvironment.DotNetCliFeatureBand}.{Settings.Version}.nupkg";
 var manifestPackPath = $"BuildOutput/NugetPackages/{manifestPack}";
 
@@ -251,9 +251,9 @@ var manifestPackPath = $"BuildOutput/NugetPackages/{manifestPack}";
 // and the entries in WorkloadManifest.in.json.
 var packNames = new List<string>()
 {
-    "Net4x.GtkSharp.Ref",
-    "Net4x.GtkSharp.Runtime",
-    "Net4x.GtkSharp.Sdk"
+    "GtkSharp4.Ref",
+    "GtkSharp4.Runtime",
+    "GtkSharp4.Sdk"
 };
 
 var templateLanguages = new List<string>()
@@ -283,7 +283,7 @@ Task("InstallWorkload")
     foreach (var language in templateLanguages)
     {
         Console.WriteLine($"Installing {language} templates");
-        var pack = $"Net4x.GtkSharp.Workload.Template.{language}.{Settings.Version}.nupkg";
+        var pack = $"GtkSharp4.Workload.Template.{language}.{Settings.Version}.nupkg";
         var packPath = $"BuildOutput/NugetPackages/{pack}";
         TargetEnvironment.InstallTemplatePack(pack, packPath);
     }
@@ -307,7 +307,7 @@ Task("UninstallWorkload")
     foreach (var language in templateLanguages)
     {
         Console.WriteLine($"Removing {language} templates");
-        var pack = $"Net4x.GtkSharp.Workload.Template.{language}.{Settings.Version}.nupkg";
+        var pack = $"GtkSharp4.Workload.Template.{language}.{Settings.Version}.nupkg";
         TargetEnvironment.UninstallTemplatePack(pack);
     }
     Console.WriteLine($"Unregistering \"gtk\" installed workload...");
